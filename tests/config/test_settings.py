@@ -23,12 +23,23 @@ def test_settings_defaults():
     assert settings.local_embedding_model == "BAAI/bge-large-en-v1.5"
 
     # Scraper defaults
-    assert settings.scraper_use_auth is False  # Public by default
+    assert settings.scraper_use_auth is False
     assert settings.broadcom_username == ""
     assert settings.broadcom_password == ""
     assert settings.scraper_delay_seconds == 3.0
     assert settings.scraper_max_articles == 100
     assert settings.scraper_output_dir == Path("./data/raw")
+
+    # LanceDB defaults
+    assert settings.lancedb_path == Path("./data/lancedb")
+
+    # Gradio defaults
+    assert settings.gradio_server_name == "0.0.0.0"
+    assert settings.gradio_server_port == 7860
+
+    # Reranker defaults
+    assert settings.reranker_model == "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    assert settings.reranker_top_n == 5
 
     # Retrieval defaults
     assert settings.retrieval_similarity_top_k == 10

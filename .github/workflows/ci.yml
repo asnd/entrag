@@ -41,7 +41,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build container image
-        run: docker build -f Containerfile -t entrag:ci .
+        run: docker build -f Dockerfile -t entrag:ci .
 
       - name: Run tests in container
         run: docker run --rm entrag:ci python -m pytest tests/ -v --tb=short
