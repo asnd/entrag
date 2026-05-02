@@ -1,0 +1,16 @@
+version: '3.3'
+
+services:
+  # ===== Scraper Job (one-shot) =====
+  scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile.scraper
+    container_name: entrag-scraper
+    volumes:
+      - ./data:/app/data
+    env_file: .env
+    depends_on:
+      - litellm
+    restart: "no"
+    entrypoint: ["python", "-m", "scripts.scrape"]

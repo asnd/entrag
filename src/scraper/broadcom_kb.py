@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 
 # Broadcom KB portal endpoints
 BROADCOM_LOGIN_URL = "https://support.broadcom.com/auth/login"
-BROADCOM_KB_SEARCH_URL = "https://knowledge.broadcom.com/external/article/search"
-BROADCOM_KB_ARTICLE_URL = "https://knowledge.broadcom.com/external/article"
+BROADCOM_KB_SEARCH_URL = "https://www.broadcom.com/support/knowledgebase"
+BROADCOM_KB_ARTICLE_URL = "https://www.broadcom.com/support/knowledgebase/article"
 
 
 @dataclass

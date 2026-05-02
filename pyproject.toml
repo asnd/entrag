@@ -27,11 +27,6 @@ dependencies = [
 
 [project.optional-dependencies]
 # Heavy optional deps — NOT installed in container by default
-local = [
-    # Local embedding model (pulls in PyTorch ~2GB)
-    "llama-index-embeddings-huggingface",
-    "sentence-transformers",
-]
 playwright = [
     # Browser-based auth scraping + LlamaIndex web reader (~700MB with chromium)
     "playwright",
@@ -41,9 +36,8 @@ eval = [
     # Evaluation framework
     "ragas",
 ]
-# All optional deps combined
 full = [
-    "entrag[local,playwright,eval]",
+    "entrag[playwright,eval]",
 ]
 dev = [
     "ruff",
