@@ -1,0 +1,464 @@
+"""Tests for the Broadcom KB scraper."""
+
+import json
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from src.scraper.broadcom_kb import (
+    BroadcomKBScraper,
+    KBArticleMeta,
+    ScraperState,
+)
+
+
+@pytest.fixture
+def temp_dir(tmp_path: Path):
+    """Provide a temporary directory for tests."""
+    return tmp_path
+
+
+def _make_mock_client():
+    """Create a properly configured AsyncMock for httpx.AsyncClient."""
+    mock_client = AsyncMock()
+    mock_client.aclose = AsyncMock()
+    return mock_client
+
+
+@pytest.fixture
+def scraper(temp_dir: Path):
+    """Create a scraper instance for testing."""
+    return BroadcomKBScraper(
+        output_dir=temp_dir,
+        max_articles=10,
+        use_auth=False,
+    )
+
+
+# --- State Tests ---
+
+
+def test_scraper_state_persistence(temp_dir: Path):
+    """Test that scraper state is saved and loaded correctly."""
+    state_file = temp_dir / ".scraper_state.json"
+
+    # Create initial state
+    state = ScraperState()
+    state.downloaded = {"12345", "67890"}
+    state.failed = {"54321"}
+    state.total_found = 1000
+    state.save(state_file)
+
+    # Load state
+    loaded_state = ScraperState.load(state_file)
+    assert loaded_state.downloaded == {"12345", "67890"}
+    assert loaded_state.failed == {"54321"}
+    assert loaded_state.total_found == 1000
+
+
+def test_scraper_state_empty_file(temp_dir: Path):
+    """Test loading state from non-existent file returns empty state."""
+    state_file = temp_dir / ".scraper_state.json"
+    assert not state_file.exists()
+
+    state = ScraperState.load(state_file)
+    assert state.downloaded == set()
+    assert state.failed == set()
+    assert state.total_found == 0
+
+
+# --- URL Parsing Tests ---
+
+
+def test_extract_article_number():
+    """Test article number extraction from URLs."""
+    test_cases = [
+        ("https://kb.vmware.com/s/article/123456", "123456"),
+        ("https://knowledge.broadcom.com/external/article?articleNumber=789012", "789012"),
+        ("/external/article/345678", "345678"),
+        ("articleNumber=901234&src=search", "901234"),
+        ("no article number here", ""),
+        ("", ""),
+    ]
+
+    for url, expected in test_cases:
+        assert BroadcomKBScraper._extract_article_number(url) == expected
+
+
+# --- Initialization Tests ---
+
+
+@pytest.mark.asyncio
+async def test_scraper_init_without_auth(temp_dir: Path):
+    """Test scraper initialization in public mode (default)."""
+    scraper = BroadcomKBScraper(
+        output_dir=temp_dir,
+        use_auth=False,
+    )
+
+    assert scraper.use_auth is False
+    assert scraper._client is None
+    assert scraper._authenticated is False
+
+
+@pytest.mark.asyncio
+async def test_scraper_init_with_auth(temp_dir: Path):
+    """Test scraper initialization with auth enabled."""
+    scraper = BroadcomKBScraper(
+        output_dir=temp_dir,
+        username="test@example.com",
+        password="secret",
+        use_auth=True,
+    )
+
+    assert scraper.use_auth is True
+    assert scraper.username == "test@example.com"
+    assert scraper.password == "secret"
+
+
+# --- Authentication Tests ---
+
+
+@pytest.mark.asyncio
+async def test_authenticate_no_credentials(temp_dir: Path):
+    """Test authentication when no credentials are provided."""
+    scraper = BroadcomKBScraper(
+        output_dir=temp_dir,
+        use_auth=True,  # Auth enabled but no credentials
+    )
+
+    # Manually set client (bypass __aenter__)
+    scraper._client = _make_mock_client()
+
+    result = await scraper.authenticate()
+    assert result is False  # Should fail gracefully — no creds
+    assert scraper._authenticated is False
+
+
+@pytest.mark.asyncio
+async def test_authenticate_success(temp_dir: Path):
+    """Test successful authentication."""
+    scraper = BroadcomKBScraper(
+        output_dir=temp_dir,
+        username="test@example.com",
+        password="secret",
+        use_auth=True,
+    )
+
+    mock_client = _make_mock_client()
+
+    # Mock login page GET
+    login_page_resp = AsyncMock()
+    login_page_resp.status_code = 200
+    login_page_resp.raise_for_status = MagicMock()
+
+    # Mock login POST
+    login_post_resp = AsyncMock()
+    login_post_resp.status_code = 200
+
+    mock_client.get = AsyncMock(return_value=login_page_resp)
+    mock_client.post = AsyncMock(return_value=login_post_resp)
+
+    scraper._client = mock_client
+
+    result = await scraper.authenticate()
+    assert result is True
+    assert scraper._authenticated is True
+
+
+@pytest.mark.asyncio
+async def test_authenticate_failure(temp_dir: Path):
+    """Test authentication failure."""
+    scraper = BroadcomKBScraper(
+        output_dir=temp_dir,
+        username="test@example.com",
+        password="wrong",
+        use_auth=True,
+    )
+
+    mock_client = _make_mock_client()
+
+    # Mock login page GET
+    login_page_resp = AsyncMock()
+    login_page_resp.status_code = 200
+    login_page_resp.raise_for_status = MagicMock()
+
+    # Mock failed login POST (401)
+    login_post_resp = AsyncMock()
+    login_post_resp.status_code = 401
+
+    mock_client.get = AsyncMock(return_value=login_page_resp)
+    mock_client.post = AsyncMock(return_value=login_post_resp)
+
+    scraper._client = mock_client
+
+    result = await scraper.authenticate()
+    assert result is False
+    assert scraper._authenticated is False
+
+
+# --- Fetch/Retry Tests ---
+
+
+@pytest.mark.asyncio
+async def test_fetch_page_success(temp_dir: Path):
+    """Test successful page fetch."""
+    scraper = BroadcomKBScraper(output_dir=temp_dir, use_auth=False)
+
+    mock_client = _make_mock_client()
+    mock_resp = AsyncMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_client.get = AsyncMock(return_value=mock_resp)
+    scraper._client = mock_client
+
+    result = await scraper._fetch_page("http://example.com")
+    assert result == mock_resp
+    mock_client.get.assert_called_once_with("http://example.com")
+
+
+# --- Search Tests ---
+
+
+@pytest.mark.asyncio
+async def test_search_articles_json_response(temp_dir: Path):
+    """Test searching articles when API returns JSON."""
+    scraper = BroadcomKBScraper(output_dir=temp_dir, max_articles=10, use_auth=False)
+    scraper.delay_seconds = 0.0  # No delay for tests
+
+    mock_client = _make_mock_client()
+
+    # First page: returns 2 results
+    search_resp_page1 = AsyncMock()
+    search_resp_page1.status_code = 200
+    search_resp_page1.headers = {"content-type": "application/json"}
+    search_resp_page1.raise_for_status = MagicMock()
+    search_resp_page1.json = MagicMock(return_value={
+        "results": [
+            {
+                "articleNumber": "123456",
+                "title": "Test Article 1",
+                "url": "https://kb.example.com/article/123456",
+                "product": "vSphere",
+                "lastUpdated": "2024-01-01",
+                "score": 0.95,
+            },
+            {
+                "articleNumber": "789012",
+                "title": "Test Article 2",
+                "url": "https://kb.example.com/article/789012",
+                "product": "NSX",
+                "lastUpdated": "2024-01-02",
+                "score": 0.87,
+            }
+        ],
+        "total": 2
+    })
+
+    # Second page: empty (signals end of results)
+    search_resp_page2 = AsyncMock()
+    search_resp_page2.status_code = 200
+    search_resp_page2.headers = {"content-type": "application/json"}
+    search_resp_page2.raise_for_status = MagicMock()
+    search_resp_page2.json = MagicMock(return_value={
+        "results": [],
+        "total": 2
+    })
+
+    mock_client.get = AsyncMock(side_effect=[search_resp_page1, search_resp_page2])
+    scraper._client = mock_client
+
+    articles = []
+    async for meta in scraper.search_articles(
+        query="test", product_filter="vSphere", max_results=5
+    ):
+        articles.append(meta)
+
+    assert len(articles) == 2
+    assert articles[0].article_number == "123456"
+    assert articles[0].title == "Test Article 1"
+    assert articles[0].product == "vSphere"
+    assert articles[1].article_number == "789012"
+    assert articles[1].title == "Test Article 2"
+    assert articles[1].product == "NSX"
+
+
+@pytest.mark.asyncio
+async def test_search_articles_html_response(temp_dir: Path):
+    """Test searching articles when API returns HTML (fallback parsing)."""
+    scraper = BroadcomKBScraper(output_dir=temp_dir, max_articles=10, use_auth=False)
+    scraper.delay_seconds = 0.0
+
+    mock_client = _make_mock_client()
+
+    # First page: HTML with article links
+    search_resp_page1 = AsyncMock()
+    search_resp_page1.status_code = 200
+    search_resp_page1.headers = {"content-type": "text/html"}
+    search_resp_page1.raise_for_status = MagicMock()
+    search_resp_page1.text = """
+    <html>
+    <body>
+        <div class="search-results">
+            <a href="/external/article?articleNumber=111111">VMware ESXi Issue</a>
+            <a href="/external/article?articleNumber=222222">vCenter Problem</a>
+            <a href="/other/link">Not an article</a>
+        </div>
+    </body>
+    </html>
+    """
+
+    # Second page: no article links (signals end)
+    search_resp_page2 = AsyncMock()
+    search_resp_page2.status_code = 200
+    search_resp_page2.headers = {"content-type": "text/html"}
+    search_resp_page2.raise_for_status = MagicMock()
+    search_resp_page2.text = "<html><body><div>No results</div></body></html>"
+
+    mock_client.get = AsyncMock(side_effect=[search_resp_page1, search_resp_page2])
+    scraper._client = mock_client
+
+    articles = []
+    async for meta in scraper.search_articles(query="test", max_results=5):
+        articles.append(meta)
+
+    assert len(articles) == 2  # Only article links with valid numbers
+    assert articles[0].article_number == "111111"
+    assert articles[0].title == "VMware ESXi Issue"
+    assert articles[1].article_number == "222222"
+    assert articles[1].title == "vCenter Problem"
+
+
+# --- Download Tests ---
+
+
+@pytest.mark.asyncio
+async def test_download_article_success(temp_dir: Path):
+    """Test successful article download."""
+    scraper = BroadcomKBScraper(output_dir=temp_dir, use_auth=False)
+
+    mock_client = _make_mock_client()
+
+    # Mock article response
+    article_resp = AsyncMock()
+    article_resp.status_code = 200
+    article_resp.text = "<html><body><h1>Test Article</h1><p>Content</p></body></html>"
+    article_resp.url = "https://kb.example.com/article/12345"
+    article_resp.raise_for_status = MagicMock()
+    mock_client.get = AsyncMock(return_value=article_resp)
+
+    scraper._client = mock_client
+
+    meta = KBArticleMeta(
+        article_number="12345",
+        title="Test Article",
+        url="https://kb.example.com/article/12345",
+    )
+
+    path = await scraper.download_article(meta)
+
+    assert path == temp_dir / "12345.html"
+    assert path.exists()
+
+    # Check HTML was saved
+    html_content = path.read_text()
+    assert "<h1>Test Article</h1>" in html_content
+
+    # Check metadata sidecar was created
+    meta_path = temp_dir / "12345.meta.json"
+    assert meta_path.exists()
+    meta_data = json.loads(meta_path.read_text())
+    assert meta_data["article_number"] == "12345"
+    assert meta_data["title"] == "Test Article"
+
+    # State updated
+    assert "12345" in scraper.state.downloaded
+
+
+@pytest.mark.asyncio
+async def test_download_article_skip_if_exists(temp_dir: Path):
+    """Test that existing articles are not re-downloaded."""
+    scraper = BroadcomKBScraper(output_dir=temp_dir, use_auth=False)
+
+    # Mark article as already downloaded in state
+    scraper.state.downloaded.add("54321")
+
+    mock_client = _make_mock_client()
+    scraper._client = mock_client
+
+    meta = KBArticleMeta(
+        article_number="54321",
+        title="Pre-existing Article",
+        url="https://kb.example.com/article/54321",
+    )
+
+    path = await scraper.download_article(meta)
+
+    assert path == temp_dir / "54321.html"
+    # Should not have made any HTTP requests
+    mock_client.get.assert_not_called()
+
+
+# --- Full Pipeline Tests ---
+
+
+@pytest.mark.asyncio
+async def test_scrape_public_mode(temp_dir: Path):
+    """Test full scrape pipeline in public mode (no auth)."""
+    scraper = BroadcomKBScraper(
+        output_dir=temp_dir,
+        max_articles=5,
+        use_auth=False,
+        delay_seconds=0.0,  # No delay for tests
+    )
+
+    mock_client = _make_mock_client()
+
+    # Page 1: search response (JSON) with 1 result
+    search_resp_page1 = AsyncMock()
+    search_resp_page1.status_code = 200
+    search_resp_page1.headers = {"content-type": "application/json"}
+    search_resp_page1.raise_for_status = MagicMock()
+    search_resp_page1.json = MagicMock(return_value={
+        "results": [
+            {
+                "articleNumber": "111111",
+                "title": "First Article",
+                "url": "https://kb.example.com/article/111111",
+                "product": "TestProduct",
+                "lastUpdated": "2024-01-01",
+                "score": 0.9,
+            }
+        ],
+        "total": 1
+    })
+
+    # Page 2: empty search response (signals end)
+    search_resp_page2 = AsyncMock()
+    search_resp_page2.status_code = 200
+    search_resp_page2.headers = {"content-type": "application/json"}
+    search_resp_page2.raise_for_status = MagicMock()
+    search_resp_page2.json = MagicMock(return_value={
+        "results": [],
+        "total": 1
+    })
+
+    # Article download response
+    article_resp = AsyncMock()
+    article_resp.status_code = 200
+    article_resp.text = "<html><body><h1>First Article</h1><p>Details</p></body></html>"
+    article_resp.url = "https://kb.example.com/article/111111"
+    article_resp.raise_for_status = MagicMock()
+
+    # Call order: search page1, download article, search page2 (empty)
+    mock_client.get = AsyncMock(side_effect=[search_resp_page1, article_resp, search_resp_page2])
+    scraper._client = mock_client
+
+    # Directly call scrape (bypass __aenter__/__aexit__)
+    paths = await scraper.scrape(query="test")
+
+    assert len(paths) == 1
+    assert paths[0] == temp_dir / "111111.html"
+    assert paths[0].exists()
+    assert "111111" in scraper.state.downloaded
+    assert scraper.state.total_found == 1
