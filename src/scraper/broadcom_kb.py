@@ -5,6 +5,7 @@ with rate limiting and exponential backoff.
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 from collections.abc import AsyncIterator
@@ -48,6 +49,7 @@ class ScraperState:
     downloaded: set[str] = field(default_factory=set)
     failed: set[str] = field(default_factory=set)
     total_found: int = 0
+    checksums: dict[str, str] = field(default_factory=dict)  # article_number -> sha256 hexdigest
 
     def save(self, path: Path) -> None:
         """Persist state to disk for resume capability."""
@@ -55,6 +57,7 @@ class ScraperState:
             "downloaded": list(self.downloaded),
             "failed": list(self.failed),
             "total_found": self.total_found,
+            "checksums": self.checksums,
         }
         path.write_text(json.dumps(state, indent=2))
 
@@ -68,6 +71,7 @@ class ScraperState:
             downloaded=set(data.get("downloaded", [])),
             failed=set(data.get("failed", [])),
             total_found=data.get("total_found", 0),
+            checksums=data.get("checksums", {}),
         )
 
 
@@ -103,10 +107,11 @@ class BroadcomKBScraper:
         self._authenticated = False
 
     async def __aenter__(self) -> "BroadcomKBScraper":
-        """Initialize HTTP client with session."""
+        """Initialize HTTP client with session and connection pooling."""
         self._client = httpx.AsyncClient(
             follow_redirects=True,
             timeout=httpx.Timeout(30.0),
+            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
             headers={
                 "User-Agent": (
                     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -236,6 +241,11 @@ class BroadcomKBScraper:
         response = await self._client.get(url)
         response.raise_for_status()
         return response
+
+    @staticmethod
+    def _calculate_checksum(content: str) -> str:
+        """Calculate SHA256 checksum of content."""
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
     async def search_articles(
         self,
@@ -374,9 +384,20 @@ class BroadcomKBScraper:
         Returns:
             Path to saved HTML file, or None on failure.
         """
-        if meta.article_number in self.state.downloaded:
-            logger.debug(f"Skipping already downloaded: {meta.article_number}")
-            return self.output_dir / f"{meta.article_number}.html"
+        output_path = self.output_dir / f"{meta.article_number}.html"
+
+        # Incremental scraping: skip if already downloaded and checksun matches
+        if meta.article_number in self.state.downloaded and output_path.exists():
+            if meta.article_number in self.state.checksums:
+                current_checksum = self._calculate_checksum(output_path.read_text(encoding="utf-8"))
+                if current_checksum == self.state.checksums[meta.article_number]:
+                    logger.debug(f"Skipping unchanged article: {meta.article_number}")
+                    return output_path
+                else:
+                    logger.info(f"Article changed, re-downloading: {meta.article_number}")
+            else:
+                logger.debug(f"Skipping already downloaded: {meta.article_number}")
+                return output_path
 
         assert self._client is not None
         logger.info(f"Downloading KB{meta.article_number}: {meta.title}")
@@ -386,8 +407,12 @@ class BroadcomKBScraper:
             response.raise_for_status()
 
             # Save HTML
-            output_path = self.output_dir / f"{meta.article_number}.html"
-            output_path.write_text(response.text, encoding="utf-8")
+            html_content = response.text
+            output_path.write_text(html_content, encoding="utf-8")
+
+            # Calculate and save checksun
+            checksum = self._calculate_checksum(html_content)
+            self.state.checksums[meta.article_number] = checksum
 
             # Save metadata sidecar
             meta_path = self.output_dir / f"{meta.article_number}.meta.json"
@@ -400,6 +425,7 @@ class BroadcomKBScraper:
                         "product": meta.product,
                         "last_updated": meta.last_updated,
                         "download_url": str(response.url),
+                        "checksum": checksum,
                     },
                     indent=2,
                 ),

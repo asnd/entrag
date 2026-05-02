@@ -378,10 +378,18 @@ async def test_download_article_success(temp_dir: Path):
 @pytest.mark.asyncio
 async def test_download_article_skip_if_exists(temp_dir: Path):
     """Test that existing articles are not re-downloaded."""
-    scraper = BroadcomKBScraper(output_dir=temp_dir, use_auth=False)
+    scraper = BroadcomKBScraper(
+        output_dir=temp_dir,
+        use_auth=False,
+    )
 
-    # Mark article as already downloaded in state
+    # Create the HTML file and add to state with matching checksum
+    html_content = "<html><body>Pre-existing Article</body></html>"
+    (temp_dir / "54321.html").write_text(html_content)
+    checksum = scraper._calculate_checksum(html_content)
     scraper.state.downloaded.add("54321")
+    scraper.state.checksums["54321"] = checksum
+    scraper.state.save(scraper.state_file)
 
     mock_client = _make_mock_client()
     scraper._client = mock_client
@@ -397,10 +405,6 @@ async def test_download_article_skip_if_exists(temp_dir: Path):
     assert path == temp_dir / "54321.html"
     # Should not have made any HTTP requests
     mock_client.get.assert_not_called()
-
-
-# --- Full Pipeline Tests ---
-
 
 @pytest.mark.asyncio
 async def test_scrape_public_mode(temp_dir: Path):
@@ -462,3 +466,151 @@ async def test_scrape_public_mode(temp_dir: Path):
     assert paths[0].exists()
     assert "111111" in scraper.state.downloaded
     assert scraper.state.total_found == 1
+
+
+# --- Checksum Tests ---
+
+
+def test_calculate_checksum():
+    """Test SHA256 checksun calculation."""
+    from src.scraper.broadcom_kb import BroadcomKBScraper
+
+    # Same content should produce same checksun
+    content1 = "<html><body>Test Article</body></html>"
+    content2 = "<html><body>Test Article</body></html>"
+    checksum1 = BroadcomKBScraper._calculate_checksum(content1)
+    checksum2 = BroadcomKBScraper._calculate_checksum(content2)
+    assert checksum1 == checksum2
+    assert len(checksum1) == 64  # SHA256 hex digest length
+
+    # Different content should produce different checksums
+    content3 = "<html><body>Different Article</body></html>"
+    checksum3 = BroadcomKBScraper._calculate_checksum(content3)
+    assert checksum1 != checksum3
+
+
+def test_scraper_state_with_checksums(temp_dir: Path):
+    """Test that scraper state persists checksums correctly."""
+    state_file = temp_dir / ".scraper_state.json"
+
+    # Create state with checksums
+    state = ScraperState()
+    state.downloaded = {"12345", "67890"}
+    state.failed = {"54321"}
+    state.total_found = 1000
+    state.checksums = {"12345": "abc123", "67890": "def456"}
+    state.save(state_file)
+
+    # Load state
+    loaded = ScraperState.load(state_file)
+    assert loaded.downloaded == {"12345", "67890"}
+    assert loaded.failed == {"54321"}
+    assert loaded.total_found == 1000
+    assert loaded.checksums == {"12345": "abc123", "67890": "def456"}
+
+
+# --- Incremental Scraping Tests ---
+
+
+@pytest.mark.asyncio
+async def test_skip_unchanged_article(temp_dir: Path):
+    """Test that unchanged articles are skipped during incremental scraping."""
+    scraper = BroadcomKBScraper(output_dir=temp_dir, use_auth=False)
+    scraper.delay_seconds = 0.0
+
+    # Create existing article with matching checksun
+    article_html = "<html><body><h1>Test</h1></body></html>"
+    (temp_dir / "99999.html").write_text(article_html)
+    checksum = scraper._calculate_checksum(article_html)
+    scraper.state.downloaded.add("99999")
+    scraper.state.checksums["99999"] = checksum
+    scraper.state.save(scraper.state_file)
+
+    mock_client = _make_mock_client()
+    scraper._client = mock_client
+
+    meta = KBArticleMeta(
+        article_number="99999",
+        title="Test",
+        url="https://kb.example.com/article/99999",
+    )
+
+    path = await scraper.download_article(meta)
+
+    assert path == temp_dir / "99999.html"
+    # Should not have made HTTP request
+    mock_client.get.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_redownload_changed_article(temp_dir: Path):
+    """Test that changed articles are re-downloaded."""
+    scraper = BroadcomKBScraper(output_dir=temp_dir, use_auth=False)
+    scraper.delay_seconds = 0.0
+
+    # Create existing article with OLD checksun
+    old_html = "<html><body><h1>Old Version</h1></body></html>"
+    (temp_dir / "88888.html").write_text(old_html)
+    scraper.state.downloaded.add("88888")
+    scraper.state.checksums["88888"] = "old_checksum_value"
+    scraper.state.save(scraper.state_file)
+
+    # Mock new content from server
+    new_html = "<html><body><h1>Updated Version</h1></body></html>"
+    new_checksum = scraper._calculate_checksum(new_html)
+    assert new_checksum != "old_checksum_value"
+
+    mock_client = _make_mock_client()
+    article_resp = AsyncMock()
+    article_resp.status_code = 200
+    article_resp.text = new_html
+    article_resp.url = "https://kb.example.com/article/88888"
+    article_resp.raise_for_status = MagicMock()
+    mock_client.get = AsyncMock(return_value=article_resp)
+    scraper._client = mock_client
+
+    meta = KBArticleMeta(
+        article_number="88888",
+        title="Updated",
+        url="https://kb.example.com/article/88888",
+    )
+
+    path = await scraper.download_article(meta)
+
+    assert path == temp_dir / "88888.html"
+    assert scraper.state.checksums["88888"] == new_checksum
+    # Should have made HTTP request
+    mock_client.get.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_skip_nonexistent_file(temp_dir: Path):
+    """Test that articles marked as downloaded but missing on disk are re-downloaded."""
+    scraper = BroadcomKBScraper(output_dir=temp_dir, use_auth=False)
+    scraper.delay_seconds = 0.0
+
+    # Mark as downloaded but don't create the file
+    scraper.state.downloaded.add("77777")
+    scraper.state.save(scraper.state_file)
+
+    mock_client = _make_mock_client()
+    article_resp = AsyncMock()
+    article_resp.status_code = 200
+    article_resp.text = "<html><body><h1>New</h1></body></html>"
+    article_resp.url = "https://kb.example.com/article/77777"
+    article_resp.raise_for_status = MagicMock()
+    mock_client.get = AsyncMock(return_value=article_resp)
+    scraper._client = mock_client
+
+    meta = KBArticleMeta(
+        article_number="77777",
+        title="New",
+        url="https://kb.example.com/article/77777",
+    )
+
+    path = await scraper.download_article(meta)
+
+    assert path == temp_dir / "77777.html"
+    assert path.exists()
+    # Should have made HTTP request since file didn't exist
+    mock_client.get.assert_called_once()
