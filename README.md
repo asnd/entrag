@@ -11,6 +11,21 @@ EntRAG uses a lightweight app container paired with a LiteLLM proxy sidecar:
 
 By default, embeddings and reranking are routed through the LiteLLM proxy to remote APIs. An optional **local models** mode bundles PyTorch and runs models in-process.
 
+## Features & Optimizations
+
+### Implemented
+- ✅ **Incremental scraping** — SHA256 checksums detect content changes, skip unchanged articles
+- ✅ **HTTP connection pooling** — Tuned connection limits (100 max, 20 keepalive) for faster scraping
+- ✅ **Resumable scraping** — Persists state (downloaded/failed articles, checksums) to disk
+- ✅ **Dual container support** — Works with both Docker and Podman (Containerfile → Dockerfile symlink)
+- ✅ **Local model support** — Optional PyTorch/sentence-transformers for offline embeddings & reranking
+- ✅ **Comprehensive testing** — 38 pytest tests covering config, scraper, and parser modules
+
+### Planned (MVP Blockers)
+- ⏳ **Ingestion pipeline** — Parse HTML → chunk → embed → store in LanceDB
+- ⏳ **Retrieval engine** — Hybrid search (vector + BM25) with reranking
+- ⏳ **Gradio UI** — Chat interface with source citations
+
 ## Quick Start
 
 ### Prerequisites
