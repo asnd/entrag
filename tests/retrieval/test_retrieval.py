@@ -12,7 +12,8 @@ from src.retrieval import RetrievalEngine
 @dataclass
 class _FakeEmbedModel:
     def get_query_embedding(self, query: str) -> list[float]:
-        return [0.1, 0.2, float(len(query))]
+        assert query
+        return [0.1, 0.2, 0.3]
 
 
 class _FakeVectorStore:

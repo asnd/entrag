@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -170,7 +169,10 @@ class RetrievalEngine:
     def _to_retrieved_chunks(self, result: VectorStoreQueryResult) -> list[RetrievedChunk]:
         """Convert raw vector-store results into normalized chunks."""
         nodes = list(result.nodes or [])
-        normalized_scores = _normalize_scores(list(result.similarities or [0.0] * len(nodes)))
+        similarities = list(result.similarities or [])
+        if len(similarities) != len(nodes):
+            similarities = [0.0] * len(nodes)
+        normalized_scores = _normalize_scores(similarities)
         chunks: list[RetrievedChunk] = []
 
         for node, score in zip(nodes, normalized_scores, strict=True):
@@ -263,12 +265,10 @@ class RetrievalEngine:
     def _summarize_text(text: str, limit: int = 280) -> str:
         """Collapse whitespace and keep answer snippets short."""
         collapsed_whitespace = " ".join(text.split())
-        if len(collapsed_whitespace) <= limit:
+        if len(collapsed_whitespace) <= limit or limit <= ELLIPSIS_LENGTH:
             return collapsed_whitespace
         return f"{collapsed_whitespace[: limit - ELLIPSIS_LENGTH].rstrip()}..."
 
-
-@lru_cache
 def get_retrieval_engine() -> RetrievalEngine:
     """Return the cached retrieval engine."""
     return RetrievalEngine()

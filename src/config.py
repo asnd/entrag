@@ -7,7 +7,7 @@ from typing import Literal
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-PLACEHOLDER_API_KEYS = frozenset({"sk-placeholder", "sk-your-key-here", "your-api-key", "sk-test"})
+PLACEHOLDER_API_KEYS = frozenset({"sk-placeholder", "sk-your-key-here", "your-api-key"})
 
 
 class Settings(BaseSettings):
