@@ -32,7 +32,10 @@ def create_app(
             return f"Configuration error: {exc}"
         except Exception as exc:  # pragma: no cover - defensive UI boundary
             logger.exception("RAG query failed: %s", exc)
-            return "The KB assistant could not complete that query. Check the application logs."
+            return (
+                "The KB assistant hit an unexpected server error while processing that query. "
+                "Check the application logs."
+            )
 
     demo = gr.ChatInterface(
         fn=rag_chat,

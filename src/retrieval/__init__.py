@@ -156,7 +156,7 @@ class RetrievalEngine:
         )
         try:
             return self._vector_store.query(hybrid_query)
-        except Exception as exc:  # pragma: no cover - depends on LanceDB capabilities
+        except (AttributeError, NotImplementedError, ValueError) as exc:  # pragma: no cover
             logger.warning("Hybrid search unavailable, falling back to vector search: %s", exc)
             fallback_query = VectorStoreQuery(
                 query_embedding=query_embedding,
@@ -261,10 +261,10 @@ class RetrievalEngine:
     @staticmethod
     def _summarize_text(text: str, limit: int = 280) -> str:
         """Collapse whitespace and keep answer snippets short."""
-        compact = " ".join(text.split())
-        if len(compact) <= limit:
-            return compact
-        return f"{compact[: limit - 3].rstrip()}..."
+        collapsed_whitespace = " ".join(text.split())
+        if len(collapsed_whitespace) <= limit:
+            return collapsed_whitespace
+        return f"{collapsed_whitespace[: limit - 3].rstrip()}..."
 
 
 @lru_cache

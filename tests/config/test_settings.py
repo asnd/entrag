@@ -172,9 +172,10 @@ def test_settings_runtime_helpers():
     assert settings.resolved_embedding_model(use_local_models=True) == "local-embedding"
 
 
-def test_settings_runtime_helper_rejects_placeholder_key():
+@pytest.mark.parametrize("api_key", ["sk-placeholder", "sk-your-key-here"])
+def test_settings_runtime_helper_rejects_placeholder_key(api_key: str):
     """Test that runtime validation rejects placeholder API keys."""
-    settings = Settings(litellm_api_key="sk-placeholder")
+    settings = Settings(litellm_api_key=api_key)
 
     with pytest.raises(ValueError, match="LITELLM_API_KEY is not configured"):
         settings.ensure_litellm_api_key_configured()
