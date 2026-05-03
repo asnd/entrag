@@ -27,6 +27,7 @@ CAUSE_HINTS = ("cause", "why", "root cause")
 SYMPTOM_HINTS = ("issue", "error", "failure", "fails", "problem", "symptom")
 RERANKING_VECTOR_WEIGHT = 0.15
 RERANKING_LEXICAL_WEIGHT = 0.85
+ELLIPSIS_LENGTH = 3
 
 
 @dataclass(slots=True)
@@ -156,7 +157,7 @@ class RetrievalEngine:
         )
         try:
             return self._vector_store.query(hybrid_query)
-        except (AttributeError, NotImplementedError, ValueError) as exc:  # pragma: no cover
+        except (AttributeError, NotImplementedError) as exc:  # pragma: no cover
             logger.warning("Hybrid search unavailable, falling back to vector search: %s", exc)
             fallback_query = VectorStoreQuery(
                 query_embedding=query_embedding,
@@ -264,7 +265,7 @@ class RetrievalEngine:
         collapsed_whitespace = " ".join(text.split())
         if len(collapsed_whitespace) <= limit:
             return collapsed_whitespace
-        return f"{collapsed_whitespace[: limit - 3].rstrip()}..."
+        return f"{collapsed_whitespace[: limit - ELLIPSIS_LENGTH].rstrip()}..."
 
 
 @lru_cache
