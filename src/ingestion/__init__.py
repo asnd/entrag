@@ -55,7 +55,7 @@ def _article_to_documents(article: ParsedKBArticle) -> list[Document]:
 def _build_embedding_model(use_local_models: bool = False) -> LiteLLMEmbedding:
     """Create the embedding client used for ingestion."""
     settings = get_settings()
-    settings.ensure_litellm_api_key_configured()
+    settings.validate_litellm_api_key()
     return LiteLLMEmbedding(
         model=settings.resolved_embedding_model(use_local_models=use_local_models),
         api_base=settings.resolved_litellm_base_url(use_local_models=use_local_models),

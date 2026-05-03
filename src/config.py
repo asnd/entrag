@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     retrieval_similarity_top_k: int = Field(default=10, ge=1)
     retrieval_hybrid_alpha: float = Field(default=0.7, ge=0.0, le=1.0)
 
-    def ensure_litellm_api_key_configured(self) -> None:
+    def validate_litellm_api_key(self) -> None:
         """Fail fast when the LiteLLM proxy key was not configured."""
         normalized_key = self.litellm_api_key.strip()
         if not normalized_key:

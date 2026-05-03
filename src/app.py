@@ -8,13 +8,13 @@ import logging
 from collections.abc import Callable
 
 from src.config import get_settings
-from src.retrieval import RetrievalEngine, get_retrieval_engine
+from src.retrieval import RetrievalEngine, create_retrieval_engine
 
 logger = logging.getLogger(__name__)
 
 
 def create_app(
-    engine_factory: Callable[[], RetrievalEngine] = get_retrieval_engine,
+    engine_factory: Callable[[], RetrievalEngine] = create_retrieval_engine,
 ):
     """Create the Gradio chat interface."""
     import gradio as gr

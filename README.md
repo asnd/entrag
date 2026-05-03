@@ -76,7 +76,7 @@ At minimum set:
 - `LITELLM_API_KEY`
 - optionally `LITELLM_MASTER_KEY`
 
-The app now fails fast when `LITELLM_API_KEY` is left on a placeholder value.
+The app now validates `LITELLM_API_KEY` before ingestion or retrieval starts.
 
 ### 2. Start the always-on services
 

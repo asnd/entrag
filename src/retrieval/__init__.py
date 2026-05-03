@@ -90,7 +90,7 @@ class RetrievalEngine:
 
     def _build_embed_model(self) -> LiteLLMEmbedding:
         """Create the LiteLLM embedding client used for query embeddings."""
-        self.settings.ensure_litellm_api_key_configured()
+        self.settings.validate_litellm_api_key()
         return LiteLLMEmbedding(
             model=self.settings.resolved_embedding_model(),
             api_base=self.settings.resolved_litellm_base_url(),
@@ -269,9 +269,9 @@ class RetrievalEngine:
             return collapsed_whitespace
         return f"{collapsed_whitespace[: limit - ELLIPSIS_LENGTH].rstrip()}..."
 
-def get_retrieval_engine() -> RetrievalEngine:
-    """Return the cached retrieval engine."""
+def create_retrieval_engine() -> RetrievalEngine:
+    """Create a retrieval engine from the current settings."""
     return RetrievalEngine()
 
 
-__all__ = ["RetrievedChunk", "RetrievalEngine", "get_retrieval_engine"]
+__all__ = ["RetrievedChunk", "RetrievalEngine", "create_retrieval_engine"]

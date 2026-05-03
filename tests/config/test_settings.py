@@ -165,7 +165,7 @@ def test_settings_runtime_helpers():
     """Test runtime configuration helpers used by ingestion and retrieval."""
     settings = Settings(litellm_api_key="sk-live", litellm_base_url="http://litellm:4000")
 
-    settings.ensure_litellm_api_key_configured()
+    settings.validate_litellm_api_key()
     assert settings.resolved_litellm_base_url() == "http://litellm:4000"
     assert settings.resolved_litellm_base_url(use_local_models=True) == "http://litellm-local:4000"
     assert settings.resolved_embedding_model() == "text-embedding-3-small"
@@ -178,4 +178,4 @@ def test_settings_runtime_helper_rejects_placeholder_key(api_key: str):
     settings = Settings(litellm_api_key=api_key)
 
     with pytest.raises(ValueError, match="LITELLM_API_KEY is not configured"):
-        settings.ensure_litellm_api_key_configured()
+        settings.validate_litellm_api_key()
