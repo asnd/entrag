@@ -267,7 +267,8 @@ class RetrievalEngine:
         collapsed_whitespace = " ".join(text.split())
         if len(collapsed_whitespace) <= limit or limit <= ELLIPSIS_LENGTH:
             return collapsed_whitespace
-        return f"{collapsed_whitespace[: limit - ELLIPSIS_LENGTH].rstrip()}..."
+        truncated_length = limit - ELLIPSIS_LENGTH
+        return f"{collapsed_whitespace[:truncated_length].rstrip()}..."
 
 def create_retrieval_engine() -> RetrievalEngine:
     """Create a retrieval engine from the current settings."""
