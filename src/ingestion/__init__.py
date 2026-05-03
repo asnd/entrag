@@ -2,12 +2,12 @@
 
 import logging
 from pathlib import Path
-from typing import List
+from shutil import rmtree
 
-from llama_index.core import Document, VectorStoreIndex, StorageContext
+from llama_index.core import Document, StorageContext, VectorStoreIndex
 from llama_index.core.node_parser import SentenceSplitter
-from llama_index.vector_stores.lancedb import LanceDBVectorStore
 from llama_index.embeddings.litellm import LiteLLMEmbedding
+from llama_index.vector_stores.lancedb import LanceDBVectorStore
 
 from src.config import get_settings
 from src.scraper.parser import ParsedKBArticle, parse_directory
@@ -19,7 +19,7 @@ CHUNK_SIZE = 512
 CHUNK_OVERLAP = 50
 
 
-def _article_to_documents(article: ParsedKBArticle) -> List[Document]:
+def _article_to_documents(article: ParsedKBArticle) -> list[Document]:
     """Convert a parsed KB article into LlamaIndex Documents (chunks)."""
     docs = []
     base_meta = {
@@ -52,15 +52,28 @@ def _article_to_documents(article: ParsedKBArticle) -> List[Document]:
     return docs
 
 
+def _build_embedding_model(use_local_models: bool = False) -> LiteLLMEmbedding:
+    """Create the embedding client used for ingestion."""
+    settings = get_settings()
+    settings.ensure_litellm_api_key_configured()
+    return LiteLLMEmbedding(
+        model=settings.resolved_embedding_model(use_local_models=use_local_models),
+        api_base=settings.resolved_litellm_base_url(use_local_models=use_local_models),
+        api_key=settings.litellm_api_key,
+    )
+
+
 def ingest_directory(
     source_dir: Path,
     reset: bool = False,
+    use_local_models: bool = False,
 ) -> int:
     """Ingest all parsed KB articles from a directory into LanceDB.
 
     Args:
         source_dir: Directory containing HTML files.
         reset: If True, wipe the vector store before ingestion.
+        use_local_models: If True, use the local LiteLLM endpoint/model aliases.
 
     Returns:
         Number of document chunks ingested.
@@ -75,20 +88,17 @@ def ingest_directory(
 
     logger.info(f"Parsed {len(articles)} articles. Creating documents...")
 
-    all_docs: List[Document] = []
+    all_docs: list[Document] = []
     for article in articles:
         docs = _article_to_documents(article)
         all_docs.extend(docs)
 
     logger.info(f"Total documents (chunks): {len(all_docs)}")
 
-    # Always use LiteLLM (supports both remote and local models)
-    logger.info(f"Using embedding via LiteLLM: {settings.litellm_embedding_model}")
-    embed_model = LiteLLMEmbedding(
-        model=settings.litellm_embedding_model,
-        api_base=settings.litellm_base_url,
-        api_key=settings.litellm_api_key,
-    )
+    embedding_model_name = settings.resolved_embedding_model(use_local_models=use_local_models)
+    embedding_base_url = settings.resolved_litellm_base_url(use_local_models=use_local_models)
+    logger.info(f"Using embedding via LiteLLM: {embedding_model_name} @ {embedding_base_url}")
+    embed_model = _build_embedding_model(use_local_models=use_local_models)
 
     # Set up chunker
     splitter = SentenceSplitter(
@@ -100,15 +110,18 @@ def ingest_directory(
     lancedb_path = Path(settings.lancedb_path)
     if reset and lancedb_path.exists():
         logger.warning(f"Resetting vector store at {lancedb_path}")
-        import shutil
-        shutil.rmtree(lancedb_path)
+        rmtree(lancedb_path)
 
     lancedb_path.parent.mkdir(parents=True, exist_ok=True)
-    vector_store = LanceDBVectorStore(uri=str(lancedb_path))
+    vector_store = LanceDBVectorStore(
+        uri=str(lancedb_path),
+        mode="overwrite" if reset else "append",
+        query_type="hybrid",
+    )
     storage_context = StorageContext.from_defaults(vector_store=vector_store)
 
     logger.info("Building vector index (this may take a while with local embeddings)...")
-    index = VectorStoreIndex.from_documents(
+    VectorStoreIndex.from_documents(
         all_docs,
         storage_context=storage_context,
         embed_model=embed_model,
@@ -116,7 +129,9 @@ def ingest_directory(
         show_progress=True,
     )
 
-    logger.info(f"Successfully ingested {len(all_docs)} document chunks into LanceDB at {lancedb_path}")
+    logger.info(
+        f"Successfully ingested {len(all_docs)} document chunks into LanceDB at {lancedb_path}"
+    )
     return len(all_docs)
 
 

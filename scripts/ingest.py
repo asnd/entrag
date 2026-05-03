@@ -46,20 +46,16 @@ def main(source: str, reset: bool, local: bool, verbose: bool) -> None:
     settings = get_settings()
 
     source_dir = Path(source) if source else settings.scraper_output_dir
+    resolved_base_url = settings.resolved_litellm_base_url(use_local_models=local)
+    resolved_model = settings.resolved_embedding_model(use_local_models=local)
     console.print("\n[bold]EntRAG — Document Ingestion[/bold]")
     console.print(f"  Source: {source_dir}")
     console.print(f"  LanceDB: {settings.lancedb_path}")
-    console.print(f"  Embedding: {settings.embedding_provider}")
+    console.print(f"  Embedding model: {resolved_model}")
+    console.print(f"  LiteLLM endpoint: {resolved_base_url}")
     if local:
         console.print("  [yellow]Forcing local embedding model[/yellow]")
     console.print()
-
-    if local:
-        import os
-        os.environ["EMBEDDING_PROVIDER"] = "local"
-        # Clear cached settings
-        from src.config import get_settings
-        get_settings.cache_clear()
 
     from src.ingestion import ingest_directory
 
@@ -70,7 +66,7 @@ def main(source: str, reset: bool, local: bool, verbose: bool) -> None:
     ) as progress:
         task = progress.add_task("Ingesting documents...", total=None)
         try:
-            count = ingest_directory(source_dir, reset=reset)
+            count = ingest_directory(source_dir, reset=reset, use_local_models=local)
             progress.update(task, description=f"Ingested {count} document chunks")
             console.print(f"\n[green]Done![/green] Ingested {count} document chunks into LanceDB.")
         except Exception as e:

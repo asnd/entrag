@@ -1,7 +1,4 @@
-"""Application configuration using pydantic-settings.
-
-All settings are loaded from environment variables or .env file.
-"""
+"""Application configuration using pydantic-settings."""
 
 from functools import lru_cache
 from pathlib import Path
@@ -9,6 +6,8 @@ from typing import Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+PLACEHOLDER_API_KEYS = frozenset({"", "sk-placeholder", "sk-your-key-here"})
 
 
 class Settings(BaseSettings):
@@ -53,7 +52,33 @@ class Settings(BaseSettings):
     retrieval_similarity_top_k: int = Field(default=10, ge=1)
     retrieval_hybrid_alpha: float = Field(default=0.7, ge=0.0, le=1.0)
 
-    @field_validator('scraper_delay_seconds', mode='before')
+    def ensure_litellm_api_key_configured(self) -> None:
+        """Fail fast when the LiteLLM proxy key was not configured."""
+        if self.litellm_api_key.strip() in PLACEHOLDER_API_KEYS:
+            raise ValueError(
+                "LITELLM_API_KEY is not configured. "
+                "Set it in .env before running ingestion or retrieval."
+            )
+
+    def resolved_litellm_base_url(self, use_local_models: bool = False) -> str:
+        """Resolve the LiteLLM endpoint for remote or local model serving."""
+        if not use_local_models:
+            return self.litellm_base_url
+
+        replacements = {
+            "http://localhost:4000": "http://localhost:4001",
+            "http://127.0.0.1:4000": "http://127.0.0.1:4001",
+            "http://litellm:4000": "http://litellm-local:4000",
+        }
+        return replacements.get(self.litellm_base_url, self.litellm_base_url)
+
+    def resolved_embedding_model(self, use_local_models: bool = False) -> str:
+        """Resolve the embedding model alias exposed by LiteLLM."""
+        if use_local_models or self.embedding_provider == "local":
+            return "local-embedding"
+        return self.litellm_embedding_model
+
+    @field_validator("scraper_delay_seconds", mode="before")
     @classmethod
     def validate_scraper_delay(cls, v):
         """Ensure scraper delay is non-negative."""
@@ -61,12 +86,12 @@ class Settings(BaseSettings):
         try:
             val = float(v)
         except (ValueError, TypeError):
-            raise ValueError('scraper_delay_seconds must be a number')
+            raise ValueError("scraper_delay_seconds must be a number")
         if val < 0:
-            raise ValueError('scraper_delay_seconds must be non-negative')
+            raise ValueError("scraper_delay_seconds must be non-negative")
         return val
 
-    @field_validator('scraper_max_articles', mode='before')
+    @field_validator("scraper_max_articles", mode="before")
     @classmethod
     def validate_scraper_max_articles(cls, v):
         """Ensure scraper max articles is positive."""
@@ -74,12 +99,12 @@ class Settings(BaseSettings):
         try:
             val = int(v)
         except (ValueError, TypeError):
-            raise ValueError('scraper_max_articles must be an integer')
+            raise ValueError("scraper_max_articles must be an integer")
         if val < 1:
-            raise ValueError('scraper_max_articles must be positive')
+            raise ValueError("scraper_max_articles must be positive")
         return val
 
-    @field_validator('retrieval_hybrid_alpha', mode='before')
+    @field_validator("retrieval_hybrid_alpha", mode="before")
     @classmethod
     def validate_retrieval_alpha(cls, v):
         """Ensure retrieval alpha is between 0 and 1."""
@@ -87,9 +112,9 @@ class Settings(BaseSettings):
         try:
             val = float(v)
         except (ValueError, TypeError):
-            raise ValueError('retrieval_hybrid_alpha must be a number')
+            raise ValueError("retrieval_hybrid_alpha must be a number")
         if not 0 <= val <= 1:
-            raise ValueError('retrieval_hybrid_alpha must be between 0 and 1')
+            raise ValueError("retrieval_hybrid_alpha must be between 0 and 1")
         return val
 
 

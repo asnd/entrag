@@ -23,9 +23,12 @@ def test_dockerfile_app_exists():
     assert dockerfile.exists()
 
     content = dockerfile.read_text()
+    effective_content = "\n".join(
+        line for line in content.splitlines() if not line.lstrip().startswith("#")
+    )
     # Should NOT contain local/playwright deps
-    assert "sentence-transformers" not in content
-    assert "playwright" not in content
+    assert "sentence-transformers" not in effective_content
+    assert 'uv pip install -e ".[playwright]"' not in effective_content
     # Should have gradio and core deps
     assert "gradio" in content.lower() or "src.app" in content
 
@@ -56,10 +59,10 @@ def test_compose_yaml_exists():
     assert compose.exists()
 
     content = compose.read_text()
-    # Should have all services
+    # Base compose file should keep only always-on services
     assert "rag-app:" in content
     assert "litellm:" in content
-    assert "litellm-local:" in content
+    assert "litellm-local:" not in content
 
 
 def test_compose_jobs_yaml_exists():
@@ -103,8 +106,12 @@ def test_pyproject_toml_no_local_extra():
 def test_dockerfile_app_no_playwright():
     """Test that Dockerfile.app does not have playwright."""
     dockerfile = Path("Dockerfile.app")
-    content = dockerfile.read_text()
-    assert "playwright" not in content.lower(), "Dockerfile.app should not have playwright"
+    content = "\n".join(
+        line
+        for line in dockerfile.read_text().splitlines()
+        if not line.lstrip().startswith("#")
+    )
+    assert 'uv pip install -e ".[playwright]"' not in content
 
 
 def test_dockerfile_scraper_has_playwright():

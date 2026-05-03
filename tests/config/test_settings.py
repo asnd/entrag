@@ -159,3 +159,22 @@ def test_get_settings_cached():
     get_settings.cache_clear()
     settings3 = get_settings()
     assert settings3 is not settings1
+
+
+def test_settings_runtime_helpers():
+    """Test runtime configuration helpers used by ingestion and retrieval."""
+    settings = Settings(litellm_api_key="sk-live", litellm_base_url="http://litellm:4000")
+
+    settings.ensure_litellm_api_key_configured()
+    assert settings.resolved_litellm_base_url() == "http://litellm:4000"
+    assert settings.resolved_litellm_base_url(use_local_models=True) == "http://litellm-local:4000"
+    assert settings.resolved_embedding_model() == "text-embedding-3-small"
+    assert settings.resolved_embedding_model(use_local_models=True) == "local-embedding"
+
+
+def test_settings_runtime_helper_rejects_placeholder_key():
+    """Test that runtime validation rejects placeholder API keys."""
+    settings = Settings(litellm_api_key="sk-placeholder")
+
+    with pytest.raises(ValueError, match="LITELLM_API_KEY is not configured"):
+        settings.ensure_litellm_api_key_configured()

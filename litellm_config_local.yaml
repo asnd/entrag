@@ -14,4 +14,4 @@ model_list:
       # No API key needed for local models
 
 general_settings:
-  master_key: "sk-entrag-dev"
+  master_key: "os.environ/LITELLM_MASTER_KEY"

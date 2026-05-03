@@ -13,4 +13,4 @@ model_list:
       api_key: "os.environ/OPENAI_API_KEY"
 
 general_settings:
-  master_key: "sk-entrag-dev"
+  master_key: "os.environ/LITELLM_MASTER_KEY"
