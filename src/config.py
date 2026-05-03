@@ -7,7 +7,7 @@ from typing import Literal
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-PLACEHOLDER_API_KEYS = frozenset({"", "sk-placeholder", "sk-your-key-here"})
+PLACEHOLDER_API_KEYS = frozenset({"sk-placeholder", "sk-your-key-here"})
 
 
 class Settings(BaseSettings):
@@ -54,7 +54,13 @@ class Settings(BaseSettings):
 
     def ensure_litellm_api_key_configured(self) -> None:
         """Fail fast when the LiteLLM proxy key was not configured."""
-        if self.litellm_api_key.strip() in PLACEHOLDER_API_KEYS:
+        normalized_key = self.litellm_api_key.strip()
+        if not normalized_key:
+            raise ValueError(
+                "LITELLM_API_KEY is not set. "
+                "Set it in .env before running ingestion or retrieval."
+            )
+        if normalized_key in PLACEHOLDER_API_KEYS:
             raise ValueError(
                 "LITELLM_API_KEY is not configured. "
                 "Set it in .env before running ingestion or retrieval."

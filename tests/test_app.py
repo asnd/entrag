@@ -11,6 +11,10 @@ class _FakeEngine:
         return f"{self.answer_text}: {message}"
 
 
+def _raise_missing_index():
+    raise FileNotFoundError("missing")
+
+
 def test_create_app_uses_retrieval_engine():
     """The chat interface should delegate responses to the retrieval engine."""
     app = create_app(lambda: _FakeEngine("matched"))
@@ -20,7 +24,7 @@ def test_create_app_uses_retrieval_engine():
 
 def test_create_app_handles_missing_index():
     """The chat interface should surface an actionable ingestion hint."""
-    app = create_app(lambda: (_ for _ in ()).throw(FileNotFoundError("missing")))
+    app = create_app(_raise_missing_index)
 
     message = app.fn("boot failure", [])
     assert "entrag-ingest" in message

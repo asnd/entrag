@@ -25,6 +25,8 @@ TOKEN_PATTERN = re.compile(r"[a-z0-9]{2,}")
 RESOLUTION_HINTS = ("fix", "resolve", "solution", "how to", "how do", "workaround")
 CAUSE_HINTS = ("cause", "why", "root cause")
 SYMPTOM_HINTS = ("issue", "error", "failure", "fails", "problem", "symptom")
+RERANKING_VECTOR_WEIGHT = 0.15
+RERANKING_LEXICAL_WEIGHT = 0.85
 
 
 @dataclass(slots=True)
@@ -170,7 +172,7 @@ class RetrievalEngine:
         normalized_scores = _normalize_scores(list(result.similarities or [0.0] * len(nodes)))
         chunks: list[RetrievedChunk] = []
 
-        for node, score in zip(nodes, normalized_scores, strict=False):
+        for node, score in zip(nodes, normalized_scores, strict=True):
             metadata = dict(getattr(node, "metadata", {}) or {})
             chunks.append(
                 RetrievedChunk(
@@ -197,7 +199,10 @@ class RetrievalEngine:
             reranked.append(
                 RetrievedChunk(
                     text=candidate.text,
-                    score=(0.15 * candidate.score) + (0.85 * lexical_score),
+                    score=(
+                        (RERANKING_VECTOR_WEIGHT * candidate.score)
+                        + (RERANKING_LEXICAL_WEIGHT * lexical_score)
+                    ),
                     article_number=candidate.article_number,
                     title=candidate.title,
                     url=candidate.url,

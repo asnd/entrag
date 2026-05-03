@@ -19,9 +19,8 @@ def create_app(
     """Create the Gradio chat interface."""
     import gradio as gr
 
-    def rag_chat(message: str, history: list) -> str:
+    def rag_chat(message: str, _history: list) -> str:
         """Search the indexed KB and return ranked excerpts with citations."""
-        del history
         try:
             return engine_factory().answer(message)
         except FileNotFoundError:
