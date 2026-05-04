@@ -25,7 +25,7 @@ def test_settings_defaults():
     # Scraper defaults
     assert settings.scraper_use_auth is False
     assert settings.broadcom_username == ""
-    assert settings.broadcom_password == ""
+    assert settings.broadcom_password.get_secret_value() == ""
     assert settings.scraper_delay_seconds == 3.0
     assert settings.scraper_max_articles == 100
     assert settings.scraper_output_dir == Path("./data/raw")
@@ -77,6 +77,8 @@ def test_settings_from_env(monkeypatch: pytest.MonkeyPatch):
             assert getattr(settings, attr_name) == float(env_value)
         elif attr_name in ["scraper_max_articles", "retrieval_similarity_top_k"]:
             assert getattr(settings, attr_name) == int(env_value)
+        elif attr_name == "broadcom_password":
+            assert settings.broadcom_password.get_secret_value() == env_value
         else:
             assert getattr(settings, attr_name) == env_value
         monkeypatch.delenv(env_var, raising=False)

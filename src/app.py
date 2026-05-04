@@ -4,12 +4,13 @@ Usage:
     python -m src.app
 """
 
+import gradio as gr
+
 from src.config import get_settings
 
 
 def create_app():
     """Create the Gradio chat interface (Phase 5 - not yet implemented)."""
-    import gradio as gr
 
     def rag_chat(message: str, history: list) -> str:
         """Placeholder RAG chat function."""

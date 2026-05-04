@@ -212,7 +212,7 @@ class KBArticleParser:
 
         for selector in selectors:
             element = soup.select_one(selector)
-            if element and len(element.get_text(strip=True)) > 100:
+            if element and len(element.get_text(strip=True)) > 20:
                 return element
 
         # Fallback: find the largest text block
@@ -221,7 +221,7 @@ class KBArticleParser:
             divs = body.find_all("div")
             if divs:
                 largest = max(divs, key=lambda d: len(d.get_text(strip=True)))
-                if len(largest.get_text(strip=True)) > 100:
+                if len(largest.get_text(strip=True)) > 20:
                     return largest
 
         return None

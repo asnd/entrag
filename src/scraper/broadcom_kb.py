@@ -8,11 +8,13 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import httpx
+from bs4 import BeautifulSoup
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -92,8 +94,11 @@ class BroadcomKBScraper:
         use_auth: bool | None = None,
     ):
         settings = get_settings()
-        self.username = username or settings.broadcom_username
-        self.password = password or settings.broadcom_password
+        self.username: str = username or settings.broadcom_username
+        self.password: str = (
+            password if password is not None
+            else settings.broadcom_password.get_secret_value()
+        )
         self.output_dir = output_dir or settings.scraper_output_dir
         self.delay_seconds = delay_seconds or settings.scraper_delay_seconds
         self.max_articles = max_articles or settings.scraper_max_articles
@@ -317,8 +322,6 @@ class BroadcomKBScraper:
                     yielded += 1
             else:
                 # HTML response — parse with BeautifulSoup
-                from bs4 import BeautifulSoup
-
                 soup = BeautifulSoup(response.text, "lxml")
                 # Look for article links in search results
                 article_links = soup.select(
@@ -357,11 +360,6 @@ class BroadcomKBScraper:
     @staticmethod
     def _extract_article_number(url: str) -> str:
         """Extract article number from KB URL."""
-        # Patterns:
-        # /external/article?articleNumber=123456
-        # /external/article/123456
-        import re
-
         match = re.search(r"articleNumber=(\d+)", url)
         if match:
             return match.group(1)
@@ -483,8 +481,6 @@ class BroadcomKBScraper:
                 logger.error(f"Skipping KB{meta.article_number} after retries: {e}")
 
             # Rate limiting
-            await asyncio.sleep(self.delay_seconds)
-
         logger.info(
             f"Scraping complete. Downloaded: {len(downloaded_paths)}, "
             f"Failed: {len(self.state.failed)}, "
