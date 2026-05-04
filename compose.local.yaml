@@ -7,6 +7,7 @@ services:
       context: .
       dockerfile: Dockerfile.local-models
     container_name: entrag-litellm-local
+    env_file: .env
     ports:
       - "4001:4000"
     volumes:

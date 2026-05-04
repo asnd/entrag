@@ -1,270 +1,185 @@
 # EntRAG
 
-VMware/Broadcom Knowledge Base RAG Application — a Retrieval-Augmented Generation system that scrapes, indexes, and queries Broadcom/VMware KB articles through a Gradio web interface.
+EntRAG is a VMware/Broadcom knowledge-base retrieval app. It scrapes KB articles, parses them into structured sections, indexes them in LanceDB, and exposes a Gradio interface that returns grounded KB excerpts with citations.
+
+## What is implemented
+
+- Broadcom KB scraping with resumable state and checksum-based skip logic
+- HTML parsing into structured sections such as Symptoms, Cause, and Resolution
+- LanceDB-backed ingestion with metadata-preserving chunks
+- Hybrid retrieval over the stored index, with lightweight reranking biased toward actionable sections
+- A Gradio UI that queries the index instead of returning a placeholder
+- Pytest and Ruff coverage for config, scraping, parsing, retrieval, app wiring, and container layout
+
+## Current retrieval behavior
+
+The runtime is retrieval-first:
+
+1. Query embedding is generated through LiteLLM
+2. LanceDB hybrid search retrieves candidate chunks
+3. A lightweight reranker boosts exact term overlap and section intent
+4. The UI returns the strongest KB excerpts and source links
+
+This keeps responses grounded in indexed content and makes retrieval quality observable before adding a full answer-synthesis layer.
 
 ## Architecture
 
-EntRAG uses a **multi-container architecture** with clear separation of runtime responsibilities:
+### Runtime split
 
-### Containers by Responsibility
+| Component | Responsibility |
+| --- | --- |
+| `rag-app` | Gradio UI and retrieval |
+| `litellm` | Model proxy for embeddings and optional generation |
+| `scraper` | One-shot article collection job |
+| `ingest` | One-shot parsing + embedding + indexing job |
+| `litellm-local` | Optional isolated local-model sidecar |
 
-| Container | Purpose | Image Size | Runtime |
-|-----------|---------|-----------|---------|
-| `rag-app` | Main RAG application (Gradio UI, retrieval, ingestion) | ~500MB | Always on |
-| `scraper` | One-shot scraping job (Playwright/browser) | ~700MB | On-demand (`--profile scrape`) |
-| `ingest` | One-shot ingestion job (LlamaIndex + LanceDB) | ~500MB | On-demand (`--profile ingest`) |
-| `litellm` | Proxy for remote LLM/embedding APIs (OpenAI) | ~200MB | Always on |
-| `litellm-local` | Proxy with local models (sentence-transformers) | ~3GB | Optional (`--profile local-models`) |
+### Data flow
 
-### Key Design Decisions
-
-- **No monolith**: Main app stays lean (~500MB). Heavy ML models live in their own container.
-- **Jobs, not always-on**: Scraping and ingestion run as one-shot containers (not long-running services).
-- **LiteLLM as model abstraction**: The app **always calls LiteLLM**. Local vs remote is just a config change in LiteLLM.
-- **Shared `data` volume**: Raw HTML + LanceDB mounted into scraper/ingest/app containers.
-
-### Data Flow
-
-```
-Step 1: Scrape (one-shot)
-  docker compose --profile scrape run --rm scraper search --query "vmware" --max 73
-  → Downloads HTML to ./data/raw/
-
-Step 2: Ingest (one-shot)
-  docker compose --profile ingest run --rm ingest --source ./data/raw --reset
-  → Parses HTML, chunks, embeds via LiteLLM → LanceDB at ./data/lancedb/
-
-Step 3: Serve (always on)
-  docker compose up -d
-  → Gradio UI at http://localhost:7860
+```text
+Broadcom KB search/download
+  -> ./data/raw/*.html
+  -> parser extracts sections + metadata
+  -> ingestion chunks and embeds content
+  -> LanceDB stores vectors + metadata
+  -> retrieval queries LanceDB and reranks matches
+  -> Gradio returns cited excerpts
 ```
 
-## Features & Optimizations
+## Repository layout
 
-### Implemented
-- ✅ **Incremental scraping** — SHA256 checksums detect content changes, skip unchanged articles
-- ✅ **HTTP connection pooling** — Tuned connection limits (100 max, 20 keepalive) for faster scraping
-- ✅ **Resumable scraping** — Persists state (downloaded/failed articles, checksums) to disk
-- ✅ **Container separation** — App, scraper, ingestion, and ML models in separate containers
-- ✅ **Dual container support** — Works with both Docker and Podman (`Containerfile` → `Dockerfile` symlink)
-- ✅ **Comprehensive testing** — 38+ pytest tests covering config, scraper, parser, and container configs
+```text
+src/
+  app.py                Gradio entrypoint
+  config.py             Settings and runtime resolution helpers
+  ingestion/            Parsing -> chunking -> LanceDB indexing
+  retrieval/            Hybrid search and reranking
+  scraper/              Broadcom KB scraper and parser
+scripts/
+  scrape.py             CLI wrapper for scraping
+  ingest.py             CLI wrapper for ingestion
+tests/                  Automated coverage
+docs/                   Deeper notes on embeddings and reranking
+```
 
-### Planned (MVP Blockers)
-- ⏳ **Gradio UI** — Chat interface with source citations
-- ⏳ **Retrieval engine** — Hybrid search (vector + BM25) with reranking
+## Quick start
 
-## Quick Start
-
-### Prerequisites
-
-- **Docker** (recommended) or **Podman** (both supported)
-- OpenAI API key (or another provider supported by LiteLLM)
-
-> **Podman users:** The project provides `Containerfile` symlink to `Dockerfile.app`. Replace `docker` with `podman` in all commands below.
-
-### 1. Configure environment
+### 1. Configure the environment
 
 ```bash
 cp .env.example .env
-# Edit .env — at minimum set LITELLM_API_KEY and OPENAI_API_KEY
 ```
 
-### 2. Build and run (Remote Models - Default)
+At minimum set:
 
-**Docker:**
+- `OPENAI_API_KEY`
+- `LITELLM_API_KEY`
+- optionally `LITELLM_MASTER_KEY`
+
+The app now validates `LITELLM_API_KEY` before ingestion or retrieval starts.
+
+### 2. Start the always-on services
+
 ```bash
-# Start main app + LiteLLM proxy (remote APIs)
 docker compose up -d
-
-# Scrape articles (one-shot job)
-docker compose -f compose.yaml -f compose.jobs.yaml run --rm scraper search --query "vmware" --max 73
-
-# Ingest into LanceDB (one-shot job)
-docker compose -f compose.yaml -f compose.jobs.yaml run --rm ingest --source ./data/raw --reset
 ```
 
-**Podman:**
-```bash
-podman compose up -d
-
-podman compose -f compose.yaml -f compose.jobs.yaml run --rm scraper search --query "vmware" --max 73
-
-podman compose -f compose.yaml -f compose.jobs.yaml run --rm ingest --source ./data/raw --reset
-```
-
-### 3. With Local Models (Optional)
-
-Local models run in a separate LiteLLM container — they do NOT bloat the main app.
-
-**Docker:**
-```bash
-# Start everything with local embedding service
-docker compose -f compose.yaml -f compose.local.yaml up -d
-
-# Or start local model service only
-docker compose -f compose.yaml -f compose.local.yaml up litellm-local
-
-# Then point app to local service by uncommenting in .env:
-#   LITELLM_BASE_URL=http://litellm-local:4001
-#   LITELLM_EMBEDDING_MODEL=local-embedding
-```
-
-**Podman:**
-```bash
-podman compose -f compose.yaml -f compose.local.yaml up -d
-```
-
-### 4. Use
-
-- App: [http://localhost:7860](http://localhost:7860)
-- LiteLLM proxy (remote): [http://localhost:4000](http://localhost:4000)
-- LiteLLM proxy (local): [http://localhost:4001](http://localhost:4001)
-
-### Running tests
+### 3. Scrape articles
 
 ```bash
-# Docker
-docker run --rm entrag-app python -m pytest tests/ -v
-
-# Podman
-podman run --rm entrag-app python -m pytest tests/ -v
+docker compose -f compose.yaml -f compose.jobs.yaml run --rm scraper search \
+  --query "ESXi boot failure" \
+  --max 25
 ```
 
-### 2. Build and run (Remote Models - Default)
-
-**Docker:**
-```bash
-# Start main app + LiteLLM proxy (remote APIs)
-docker compose up -d
-
-# Scrape articles (one-shot job)
-docker compose --profile scrape run --rm scraper search --query "vmware" --max 73
-
-# Ingest into LanceDB (one-shot job)
-docker compose --profile ingest run --rm ingest --source ./data/raw --reset
-```
-
-**Podman:**
-```bash
-podman compose up -d
-podman compose --profile scrape run --rm scraper search --query "vmware" --max 73
-podman compose --profile ingest run --rm ingest --source ./data/raw --reset
-```
-
-### 3. With Local Models (Optional)
-
-Local models run in a separate LiteLLM container (`litellm-local`) — they do NOT bloat the main app.
+### 4. Build the index
 
 ```bash
-# Start everything with local embedding service
-docker compose --profile local-models up -d
-
-# Or start local model service only
-docker compose --profile local-models up litellm-local
-# Then point app to it by uncommenting in .env:
-#   LITELLM_BASE_URL=http://litellm-local:4000
-#   LITELLM_EMBEDDING_MODEL=local-embedding
+docker compose -f compose.yaml -f compose.jobs.yaml run --rm ingest \
+  --source ./data/raw \
+  --reset
 ```
 
-### 4. Use
+### 5. Query the app
 
-- App: [http://localhost:7860](http://localhost:7860)
-- LiteLLM proxy (remote): [http://localhost:4000](http://localhost:4000)
-- LiteLLM proxy (local): [http://localhost:4001](http://localhost:4001)
+- UI: http://localhost:7860
+- LiteLLM health/API proxy: http://localhost:4000
 
-### Running tests
+Ask product, version, error, or symptom-specific questions such as:
+
+- `How do I fix an ESXi host boot failure after a patch?`
+- `What are the symptoms of vCenter certificate issues?`
+- `Why does NSX Manager fail to start after upgrade?`
+
+## CLI usage
+
+### Scrape
 
 ```bash
-# Docker
-docker run --rm entrag-app python -m pytest tests/ -v
-
-# Podman
-podman run --rm entrag-app python -m pytest tests/ -v
+python -m scripts.scrape search --query "vmware" --max 20
+python -m scripts.scrape fetch --numbers 10001,10002
+python -m scripts.scrape parse --input ./data/raw
+python -m scripts.scrape status
 ```
 
-## Local Models (Optional Feature)
+### Ingest
 
-Local models allow the application to run entirely offline — no external API calls for embeddings or reranking. The models run inside a **separate LiteLLM container** (`litellm-local`), keeping the main app lean.
-
-For detailed technical documentation, see:
-- **[Embedding Models](docs/embedding.md)** — How vector embeddings work, provider options, pipeline flow
-- **[Reranking](docs/reranking.md)** — How cross-encoders improve retrieval quality, two-stage architecture
-
-### a) Local Embedding (Vector Indexing)
-
-When local embedding is enabled, LiteLLM loads `sentence-transformers` models in the `litellm-local` container:
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `LITELLM_BASE_URL` | `http://litellm:4000` (remote) or `http://litellm-local:4001` (local) | LiteLLM proxy URL |
-| `LITELLM_EMBEDDING_MODEL` | `text-embedding-3-small` (remote) or `local-embedding` (local) | Model name |
-
-**Default local model:** `BAAI/bge-large-en-v1.5` — configured in `litellm_config_local.yaml`
-
-**Quick enable via Docker Compose:**
 ```bash
-docker compose --profile local-models up -d
+python -m scripts.ingest --source ./data/raw --reset
+python -m scripts.ingest --local
 ```
 
-> 📖 **Deep dive:** [docs/embedding.md](docs/embedding.md) — embedding pipeline, chunking strategy, switching providers, performance comparison
+`--local` switches the ingestion command to the local LiteLLM endpoint/model aliases instead of mutating process environment variables.
 
-### b) Local Reranker (Retrieval Quality Assurance)
+## Configuration reference
 
-The reranker is a cross-encoder model that re-scores retrieved documents to improve answer quality. It runs as a second LiteLLM model entry.
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `LITELLM_BASE_URL` | `http://localhost:4000` | LiteLLM endpoint used by the app |
+| `LITELLM_API_KEY` | placeholder | Auth token used by the app to call LiteLLM |
+| `LITELLM_MASTER_KEY` | `sk-entrag-dev` in example only | LiteLLM proxy master key |
+| `LITELLM_MODEL` | `gpt-4o` | Optional generation model |
+| `LITELLM_EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model alias |
+| `LANCEDB_PATH` | `./data/lancedb` | Vector store path |
+| `SCRAPER_OUTPUT_DIR` | `./data/raw` | Downloaded article directory |
+| `RETRIEVAL_SIMILARITY_TOP_K` | `10` | Candidate pool size from LanceDB |
+| `RETRIEVAL_HYBRID_ALPHA` | `0.7` | LanceDB hybrid weighting |
+| `RERANKER_TOP_N` | `5` | Final number of displayed matches |
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Cross-encoder model for re-scoring |
+## Security notes
 
-**Default model:** `cross-encoder/ms-marco-MiniLM-L-6-v2` — a lightweight cross-encoder trained on MS MARCO passage ranking.
+- Do not keep real LiteLLM keys in tracked config files
+- LiteLLM master keys are now sourced from environment instead of hardcoded in YAML
+- Authenticated scraping is opt-in and should only be used when you understand the legal and operational implications
+- Placeholder API keys are rejected before ingestion and retrieval start network calls
 
-> 📖 **Deep dive:** [docs/reranking.md](docs/reranking.md) — two-stage retrieval architecture, cross-encoder mechanics, quality impact examples, alternative models
+## Retrieval quality notes
 
-## Configuration
+- Section metadata is stored with each chunk, which lets reranking prefer `resolution` content for fix-oriented questions and `cause` content for root-cause questions
+- Hybrid search uses LanceDB first and falls back to vector-only mode if hybrid capabilities are unavailable
+- Ingestion opens LanceDB in append mode unless `--reset` is passed, preventing accidental index replacement during normal updates
 
-All settings are configured via environment variables or `.env` file. See [`.env.example`](.env.example) for the full reference.
+## Development
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `LITELLM_BASE_URL` | `http://litellm:4000` | LiteLLM proxy URL (remote or local) |
-| `LITELLM_MODEL` | `gpt-4o` | LLM model for generation |
-| `LITELLM_EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model (via LiteLLM) |
-| `LANCEDB_PATH` | `./data/lancedb` | LanceDB vector store path |
-| `RETRIEVAL_SIMILARITY_TOP_K` | `10` | Candidates before reranking |
-| `RETRIEVAL_HYBRID_ALPHA` | `0.7` | Hybrid search weight (0=keyword, 1=vector) |
+### Local checks
 
-## Project Structure
-
-```
-entrag/
-├── src/
-│   ├── config.py          # Pydantic-settings configuration
-│   ├── app.py             # Gradio web interface
-│   ├── scraper/           # Broadcom KB scraper
-│   ├── ingestion/          # Document ingestion pipeline
-│   └── retrieval/          # Hybrid search + reranking engine
-├── scripts/
-│   ├── scrape.py           # CLI: entrag-scrape
-│   └── ingest.py           # CLI: entrag-ingest
-├── tests/                  # Pytest test suite
-├── docs/                    # ML documentation (embedding, reranking)
-├── Dockerfile.app              # Main app image (~500MB)
-├── Dockerfile.scraper          # Scraper job image (~700MB)
-├── Dockerfile.local-models     # Local ML models image (~3GB)
-├── compose.yaml            # Multi-container orchestration
-├── litellm_config.yaml     # LiteLLM remote config
-├── litellm_config_local.yaml # LiteLLM local models config
-└── pyproject.toml           # Package definition & dependencies
+```bash
+python -m ruff check src/ scripts/ tests/
+python -m pytest tests/ -v --tb=short
 ```
 
-## Optional Dependencies
+### Test coverage
 
-| Extra | Install | Size | Description |
-|-------|---------|------|-------------|
-| `playwright` | `pip install -e ".[playwright]"` | +700MB | Browser-based auth scraping |
-| `eval` | `pip install -e ".[eval]"` | varies | RAG evaluation framework (ragas) |
-| `full` | `pip install -e ".[full]"` | +1GB | All optional dependencies |
+The test suite covers:
 
-## License
+- configuration validation and runtime helpers
+- scraper state, search, download, and auth behavior
+- parser extraction and serialization
+- retrieval ranking and answer formatting
+- app error handling
+- container and compose layout expectations
 
-Private — internal use only.
+## Additional guides
+
+- [docs/embedding.md](docs/embedding.md)
+- [docs/reranking.md](docs/reranking.md)

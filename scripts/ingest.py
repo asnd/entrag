@@ -57,8 +57,6 @@ def main(source: str, reset: bool, local: bool, verbose: bool) -> None:
     if local:
         import os
         os.environ["EMBEDDING_PROVIDER"] = "local"
-        # Clear cached settings
-        from src.config import get_settings
         get_settings.cache_clear()
 
     from src.ingestion import ingest_directory

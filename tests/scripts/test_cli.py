@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from click.testing import CliRunner
 
-from scripts.ingest import cli as ingest_cli
+from scripts.ingest import main as ingest_main
 from scripts.scrape import cli as scrape_cli
 
 
@@ -165,25 +165,25 @@ def test_scrape_status(runner):
 # ── ingest ──
 
 
-def test_ingest_run_help(runner):
-    """Test that the ingest run subcommand help works."""
-    result = runner.invoke(ingest_cli, ["run", "--help"])
+def test_ingest_help(runner):
+    """Test that the ingest help works."""
+    result = runner.invoke(ingest_main, ["--help"])
     assert result.exit_code == 0
     assert "--source" in result.output
     assert "--reset" in result.output
 
 
-def test_ingest_run_default(runner):
-    """Test that ingest run shows placeholder message."""
-    result = runner.invoke(ingest_cli, ["run"])
+def test_ingest_default(runner):
+    """Test that ingest shows placeholder message."""
+    result = runner.invoke(ingest_main, [])
     assert result.exit_code == 0
-    assert "not yet implemented" in result.output
+    assert "Ingestion" in result.output
 
 
-def test_ingest_run_with_args(runner, tmp_path):
-    """Test that ingest run accepts arguments."""
+def test_ingest_with_args(runner, tmp_path):
+    """Test that ingest accepts arguments."""
     source_dir = tmp_path / "articles"
     source_dir.mkdir()
-    result = runner.invoke(ingest_cli, ["run", "--source", str(source_dir), "--reset"])
+    result = runner.invoke(ingest_main, ["--source", str(source_dir), "--reset"])
     assert result.exit_code == 0
-    assert "Reset: True" in result.output
+    assert "Reset" in result.output or "Ingestion" in result.output

@@ -2,12 +2,11 @@
 
 import logging
 from pathlib import Path
-from typing import List
 
-from llama_index.core import Document, VectorStoreIndex, StorageContext
+from llama_index.core import Document, StorageContext, VectorStoreIndex
 from llama_index.core.node_parser import SentenceSplitter
-from llama_index.vector_stores.lancedb import LanceDBVectorStore
 from llama_index.embeddings.litellm import LiteLLMEmbedding
+from llama_index.vector_stores.lancedb import LanceDBVectorStore
 
 from src.config import get_settings
 from src.scraper.parser import ParsedKBArticle, parse_directory
@@ -19,7 +18,7 @@ CHUNK_SIZE = 512
 CHUNK_OVERLAP = 50
 
 
-def _article_to_documents(article: ParsedKBArticle) -> List[Document]:
+def _article_to_documents(article: ParsedKBArticle) -> list[Document]:
     """Convert a parsed KB article into LlamaIndex Documents (chunks)."""
     docs = []
     base_meta = {
@@ -75,7 +74,7 @@ def ingest_directory(
 
     logger.info(f"Parsed {len(articles)} articles. Creating documents...")
 
-    all_docs: List[Document] = []
+    all_docs: list[Document] = []
     for article in articles:
         docs = _article_to_documents(article)
         all_docs.extend(docs)
@@ -108,7 +107,7 @@ def ingest_directory(
     storage_context = StorageContext.from_defaults(vector_store=vector_store)
 
     logger.info("Building vector index (this may take a while with local embeddings)...")
-    index = VectorStoreIndex.from_documents(
+    VectorStoreIndex.from_documents(
         all_docs,
         storage_context=storage_context,
         embed_model=embed_model,
@@ -116,7 +115,9 @@ def ingest_directory(
         show_progress=True,
     )
 
-    logger.info(f"Successfully ingested {len(all_docs)} document chunks into LanceDB at {lancedb_path}")
+    logger.info(
+        f"Successfully ingested {len(all_docs)} chunks into LanceDB at {lancedb_path}"
+    )
     return len(all_docs)
 
 

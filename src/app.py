@@ -4,25 +4,46 @@ Usage:
     python -m src.app
 """
 
-import gradio as gr
+import logging
+from collections.abc import Callable
 
 from src.config import get_settings
+from src.retrieval import RetrievalEngine, create_retrieval_engine
+
+logger = logging.getLogger(__name__)
 
 
-def create_app():
-    """Create the Gradio chat interface (Phase 5 - not yet implemented)."""
+def create_app(
+    engine_factory: Callable[[], RetrievalEngine] = create_retrieval_engine,
+):
+    """Create the Gradio chat interface."""
+    import gradio as gr
 
-    def rag_chat(message: str, history: list) -> str:
-        """Placeholder RAG chat function."""
-        return (
-            f"[Phase 5 not yet implemented] You asked: {message}\n\n"
-            "The retrieval engine and UI will be implemented in Phase 4-5."
-        )
+    def rag_chat(message: str, _history: list) -> str:
+        """Search the indexed KB and return ranked excerpts with citations."""
+        try:
+            return engine_factory().answer(message)
+        except FileNotFoundError:
+            return (
+                "No KB index is available yet. Run `entrag-ingest --source ./data/raw --reset` "
+                "and try again."
+            )
+        except ValueError as exc:
+            return f"Configuration error: {exc}"
+        except Exception as exc:  # pragma: no cover - defensive UI boundary
+            logger.exception("RAG query failed: %s", exc)
+            return (
+                "The KB assistant hit an unexpected server error while processing that query. "
+                "Check the application logs."
+            )
 
     demo = gr.ChatInterface(
         fn=rag_chat,
         title="EntRAG - VMware/Broadcom KB Assistant",
-        description="Ask questions about VMware/Broadcom products. Powered by RAG.",
+        description=(
+            "Search the indexed VMware/Broadcom knowledge base and return the strongest "
+            "matching KB excerpts with source citations."
+        ),
         api_name="rag_query",
     )
     return demo
