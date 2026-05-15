@@ -68,7 +68,7 @@ class RetrievalEngine:
         self,
         settings: Settings | None = None,
         vector_store: LanceDBVectorStore | None = None,
-        embed_model: LiteLLMEmbedding | Any | None = None,
+        embed_model: Any | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self._vector_store = vector_store or self._build_vector_store()
@@ -242,7 +242,7 @@ class RetrievalEngine:
         else:
             overlap_score = len(query_tokens & candidate_tokens) / len(query_tokens)
 
-        query_lower = " ".join(sorted(query_tokens))
+        query_lower = query.lower()
         text_lower = haystack.lower()
         phrase_bonus = 0.15 if query_lower and query_lower in text_lower else 0.0
         return min(1.0, overlap_score + phrase_bonus + self._section_boost(query, candidate))

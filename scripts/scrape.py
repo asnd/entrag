@@ -69,11 +69,11 @@ def search(
     output_dir = Path(output) if output else settings.scraper_output_dir
 
     console.print("\n[bold]EntRAG KB Scraper[/bold]")
-    console.print(f"  Mode: {'authenticated' if auth else 'public (default)'}")
-    console.print(f"  Query: {query}")
-    console.print(f"  Product filter: {product or 'all'}")
-    console.print(f"  Max articles: {max_articles or settings.scraper_max_articles}")
-    console.print(f"  Output: {output_dir}")
+    console.print("  Mode: %s", "authenticated" if auth else "public (default)")
+    console.print("  Query: %s", query)
+    console.print("  Product filter: %s", product or "all")
+    console.print("  Max articles: %s", max_articles or settings.scraper_max_articles)
+    console.print("  Output: %s", output_dir)
     if not auth:
         console.print("  [dim]Tip: Use --auth to access restricted articles[/dim]")
     console.print()
@@ -97,6 +97,7 @@ async def _run_scrape(
     use_auth: bool = False,
 ) -> None:
     """Run the scraping pipeline."""
+    paths: list[Path] = []
     async with BroadcomKBScraper(
         output_dir=output_dir,
         max_articles=max_articles or get_settings().scraper_max_articles,
@@ -114,7 +115,7 @@ async def _run_scrape(
             progress.update(task, description=f"Downloaded {len(paths)} articles")
 
     # Print summary
-    console.print(f"\n[green]Done![/green] Downloaded {len(paths)} articles to {output_dir}")
+    console.print("\n[green]Done![/green] Downloaded %d articles to %s", len(paths), output_dir)
 
     if scraper.state.failed:
         console.print(
@@ -147,7 +148,7 @@ def fetch(numbers: str, output: str | None, auth: bool, verbose: bool) -> None:
     output_dir = Path(output) if output else settings.scraper_output_dir
 
     mode = "authenticated" if auth else "public"
-    console.print(f"\n[bold]Fetching {len(article_numbers)} articles ({mode} mode)[/bold]")
+    console.print("\n[bold]Fetching %d articles (%s mode)[/bold]", len(article_numbers), mode)
     asyncio.run(_run_fetch(article_numbers, output_dir, use_auth=auth))
 
 
@@ -168,9 +169,9 @@ async def _run_fetch(article_numbers: list[str], output_dir: Path, use_auth: boo
             try:
                 path = await scraper.download_article(meta)
                 if path:
-                    console.print(f"  [green]OK[/green] KB{num} → {path.name}")
+                    console.print("  [green]OK[/green] KB%s → %s", num, path.name)
             except Exception as e:
-                console.print(f"  [red]FAIL[/red] KB{num}: {e}")
+                console.print("  [red]FAIL[/red] KB%s: %s", num, e)
 
 
 @cli.command()
@@ -227,7 +228,7 @@ def parse(input_dir: str | None, verbose: bool) -> None:
 
     if section_types:
         console.print("\n[bold]Section type distribution:[/bold]")
-        for stype, count in sorted(section_types.items(), key=lambda x: -x[1]):
+        for stype, count in sorted(section_types.items(), key=lambda x: x[1], reverse=True):
             console.print(f"  {stype}: {count}")
 
 

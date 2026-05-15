@@ -100,8 +100,12 @@ class BroadcomKBScraper:
             else settings.broadcom_password.get_secret_value()
         )
         self.output_dir = output_dir or settings.scraper_output_dir
-        self.delay_seconds = delay_seconds or settings.scraper_delay_seconds
-        self.max_articles = max_articles or settings.scraper_max_articles
+        self.delay_seconds = (
+            delay_seconds if delay_seconds is not None else settings.scraper_delay_seconds
+        )
+        self.max_articles = (
+            max_articles if max_articles is not None else settings.scraper_max_articles
+        )
         self.use_auth = use_auth if use_auth is not None else settings.scraper_use_auth
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -149,7 +153,8 @@ class BroadcomKBScraper:
             )
             return False
 
-        assert self._client is not None
+        if self._client is None:
+            raise RuntimeError("HTTP client not initialized. Use the scraper as a context manager.")
 
         logger.info("Authenticating with Broadcom support portal...")
 
@@ -177,13 +182,14 @@ class BroadcomKBScraper:
                 return True
             else:
                 logger.error(
-                    f"Authentication failed with status {response.status_code}. "
-                    "Falling back to public articles."
+                    "Authentication failed with status %s. "
+                    "Falling back to public articles.",
+                    response.status_code,
                 )
                 return False
 
         except httpx.HTTPError as e:
-            logger.error(f"Authentication error: {e}. Falling back to public articles.")
+            logger.error("Authentication error: %s. Falling back to public articles.", e)
             return False
 
     async def authenticate_with_playwright(self) -> bool:
@@ -230,7 +236,7 @@ class BroadcomKBScraper:
                 return True
 
             except Exception as e:
-                logger.error(f"Playwright authentication failed: {e}")
+                logger.error("Playwright authentication failed: %s", e)
                 return False
             finally:
                 await browser.close()
@@ -240,10 +246,11 @@ class BroadcomKBScraper:
         wait=wait_exponential(multiplier=1, min=2, max=30),
         retry=retry_if_exception_type((httpx.HTTPError, httpx.TimeoutException)),
     )
-    async def _fetch_page(self, url: str) -> httpx.Response:
+    async def _fetch_page(self, url: str, **kwargs: object) -> httpx.Response:
         """Fetch a page with retry logic."""
-        assert self._client is not None
-        response = await self._client.get(url)
+        if self._client is None:
+            raise RuntimeError("HTTP client not initialized. Use the scraper as a context manager.")
+        response = await self._client.get(url, **kwargs)  # type: ignore[arg-type]
         response.raise_for_status()
         return response
 
@@ -285,10 +292,11 @@ class BroadcomKBScraper:
 
             try:
                 response = await self._fetch_page(
-                    f"{BROADCOM_KB_SEARCH_URL}?{httpx.QueryParams(params)}"
+                    BROADCOM_KB_SEARCH_URL,
+                    params=params,
                 )
             except httpx.HTTPError as e:
-                logger.error(f"Search failed at page {page}: {e}")
+                logger.error("Search failed at page %d: %s", page, e)
                 break
 
             # Parse search results
@@ -332,7 +340,7 @@ class BroadcomKBScraper:
                 )
 
                 if not article_links:
-                    logger.warning(f"No articles found on search page {page}")
+                    logger.warning("No articles found on search page %d", page)
                     break
 
                 for link in article_links:
@@ -384,21 +392,22 @@ class BroadcomKBScraper:
         """
         output_path = self.output_dir / f"{meta.article_number}.html"
 
-        # Incremental scraping: skip if already downloaded and checksun matches
+        # Incremental scraping: skip if already downloaded and checksum matches
         if meta.article_number in self.state.downloaded and output_path.exists():
             if meta.article_number in self.state.checksums:
                 current_checksum = self._calculate_checksum(output_path.read_text(encoding="utf-8"))
                 if current_checksum == self.state.checksums[meta.article_number]:
-                    logger.debug(f"Skipping unchanged article: {meta.article_number}")
+                    logger.debug("Skipping unchanged article: %s", meta.article_number)
                     return output_path
                 else:
-                    logger.info(f"Article changed, re-downloading: {meta.article_number}")
+                    logger.info("Article changed, re-downloading: %s", meta.article_number)
             else:
-                logger.debug(f"Skipping already downloaded: {meta.article_number}")
+                logger.debug("Skipping already downloaded: %s", meta.article_number)
                 return output_path
 
-        assert self._client is not None
-        logger.info(f"Downloading KB{meta.article_number}: {meta.title}")
+        if self._client is None:
+            raise RuntimeError("HTTP client not initialized. Use the scraper as a context manager.")
+        logger.info("Downloading KB %s: %s", meta.article_number, meta.title)
 
         try:
             response = await self._client.get(meta.url)
@@ -408,7 +417,7 @@ class BroadcomKBScraper:
             html_content = response.text
             output_path.write_text(html_content, encoding="utf-8")
 
-            # Calculate and save checksun
+            # Calculate and save checksum
             checksum = self._calculate_checksum(html_content)
             self.state.checksums[meta.article_number] = checksum
 
@@ -435,7 +444,7 @@ class BroadcomKBScraper:
             return output_path
 
         except httpx.HTTPError as e:
-            logger.error(f"Failed to download KB{meta.article_number}: {e}")
+            logger.error("Failed to download KB %s: %s", meta.article_number, e)
             self.state.failed.add(meta.article_number)
             self.state.save(self.state_file)
             raise
@@ -478,12 +487,12 @@ class BroadcomKBScraper:
                 if path:
                     downloaded_paths.append(path)
             except Exception as e:
-                logger.error(f"Skipping KB{meta.article_number} after retries: {e}")
+                logger.error("Skipping KB %s after retries: %s", meta.article_number, e)
 
-            # Rate limiting
         logger.info(
-            f"Scraping complete. Downloaded: {len(downloaded_paths)}, "
-            f"Failed: {len(self.state.failed)}, "
-            f"Total found: {self.state.total_found}"
+            "Scraping complete. Downloaded: %d, Failed: %d, Total found: %d",
+            len(downloaded_paths),
+            len(self.state.failed),
+            self.state.total_found,
         )
         return downloaded_paths

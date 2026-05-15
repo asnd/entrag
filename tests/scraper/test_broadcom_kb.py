@@ -2,8 +2,9 @@
 
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from src.scraper.broadcom_kb import (
@@ -89,8 +90,7 @@ def test_extract_article_number():
 # --- Initialization Tests ---
 
 
-@pytest.mark.asyncio
-async def test_scraper_init_without_auth(temp_dir: Path):
+def test_scraper_init_without_auth(temp_dir: Path):
     """Test scraper initialization in public mode (default)."""
     scraper = BroadcomKBScraper(
         output_dir=temp_dir,
@@ -102,8 +102,7 @@ async def test_scraper_init_without_auth(temp_dir: Path):
     assert scraper._authenticated is False
 
 
-@pytest.mark.asyncio
-async def test_scraper_init_with_auth(temp_dir: Path):
+def test_scraper_init_with_auth(temp_dir: Path):
     """Test scraper initialization with auth enabled."""
     scraper = BroadcomKBScraper(
         output_dir=temp_dir,
@@ -472,10 +471,10 @@ async def test_scrape_public_mode(temp_dir: Path):
 
 
 def test_calculate_checksum():
-    """Test SHA256 checksun calculation."""
+    """Test SHA256 checksum calculation."""
     from src.scraper.broadcom_kb import BroadcomKBScraper
 
-    # Same content should produce same checksun
+    # Same content should produce same checksum
     content1 = "<html><body>Test Article</body></html>"
     content2 = "<html><body>Test Article</body></html>"
     checksum1 = BroadcomKBScraper._calculate_checksum(content1)
@@ -518,7 +517,7 @@ async def test_skip_unchanged_article(temp_dir: Path):
     scraper = BroadcomKBScraper(output_dir=temp_dir, use_auth=False)
     scraper.delay_seconds = 0.0
 
-    # Create existing article with matching checksun
+    # Create existing article with matching checksum
     article_html = "<html><body><h1>Test</h1></body></html>"
     (temp_dir / "99999.html").write_text(article_html)
     checksum = scraper._calculate_checksum(article_html)
@@ -548,7 +547,7 @@ async def test_redownload_changed_article(temp_dir: Path):
     scraper = BroadcomKBScraper(output_dir=temp_dir, use_auth=False)
     scraper.delay_seconds = 0.0
 
-    # Create existing article with OLD checksun
+    # Create existing article with OLD checksum
     old_html = "<html><body><h1>Old Version</h1></body></html>"
     (temp_dir / "88888.html").write_text(old_html)
     scraper.state.downloaded.add("88888")
@@ -614,3 +613,95 @@ async def test_skip_nonexistent_file(temp_dir: Path):
     assert path.exists()
     # Should have made HTTP request since file didn't exist
     mock_client.get.assert_called_once()
+
+
+# --- Failure Path Tests ---
+
+
+@pytest.mark.asyncio
+async def test_download_article_http_error(temp_dir: Path):
+    """Test that download failure tracks in state after retries."""
+    scraper = BroadcomKBScraper(output_dir=temp_dir, use_auth=False)
+
+    mock_client = _make_mock_client()
+    mock_client.get = AsyncMock(side_effect=httpx.HTTPError("Connection failed"))
+    scraper._client = mock_client
+
+    meta = KBArticleMeta(
+        article_number="99999",
+        title="Fail Article",
+        url="https://kb.example.com/article/99999",
+    )
+
+    with pytest.raises(Exception):  # tenacity.RetryError wrapping HTTPError
+        await scraper.download_article(meta)
+
+    assert "99999" in scraper.state.failed
+
+
+@pytest.mark.asyncio
+async def test_search_articles_http_error(temp_dir: Path):
+    """Test that search failure breaks the loop after retries."""
+    scraper = BroadcomKBScraper(output_dir=temp_dir, max_articles=10, use_auth=False)
+    scraper.delay_seconds = 0.0
+
+    mock_client = _make_mock_client()
+    mock_client.get = AsyncMock(side_effect=httpx.HTTPError("Server error"))
+    scraper._client = mock_client
+
+    articles = []
+    with pytest.raises(Exception):  # tenacity.RetryError wrapping HTTPError
+        async for meta in scraper.search_articles(query="test"):
+            articles.append(meta)
+
+    assert articles == []
+
+
+@pytest.mark.asyncio
+async def test_authenticate_with_playwright_import_error(temp_dir: Path):
+    """Test playwright auth fallback when playwright is not installed."""
+    scraper = BroadcomKBScraper(
+        output_dir=temp_dir,
+        username="test@example.com",
+        password="secret",
+        use_auth=True,
+    )
+    scraper._client = _make_mock_client()
+
+    with patch.dict("sys.modules", {"playwright": None, "playwright.async_api": None}):
+        import sys
+        # Force reimport to trigger ImportError
+        if "src.scraper.broadcom_kb" in sys.modules:
+            del sys.modules["src.scraper.broadcom_kb"]
+
+        result = await scraper.authenticate_with_playwright()
+        assert result is False
+
+
+def test_scraper_init_with_zero_delay(tmp_path: Path):
+    """Test that delay_seconds=0.0 is respected (not treated as falsy)."""
+    scraper = BroadcomKBScraper(
+        output_dir=tmp_path,
+        delay_seconds=0.0,
+        use_auth=False,
+    )
+    assert scraper.delay_seconds == 0.0
+
+
+def test_scraper_init_with_zero_max_articles(tmp_path: Path):
+    """Test that max_articles=0 is respected (not treated as falsy)."""
+    scraper = BroadcomKBScraper(
+        output_dir=tmp_path,
+        max_articles=0,
+        use_auth=False,
+    )
+    assert scraper.max_articles == 0
+
+
+def test_scraper_state_load_corrupted_json(tmp_path: Path):
+    """Test loading corrupted state file."""
+    state_file = tmp_path / ".scraper_state.json"
+    state_file.write_text("{invalid json")
+
+    with pytest.raises(json.JSONDecodeError):
+        ScraperState.load(state_file)

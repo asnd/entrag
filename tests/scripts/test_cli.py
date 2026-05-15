@@ -46,6 +46,7 @@ def test_scrape_search_defaults(mock_scraper):
     result = runner.invoke(scrape_cli, ["search"])
     assert result.exit_code == 0
     assert "public (default)" in result.output
+    mock_scraper.scrape.assert_called_once()
 
 
 def test_scrape_search_with_auth(mock_scraper):
@@ -54,6 +55,7 @@ def test_scrape_search_with_auth(mock_scraper):
     result = runner.invoke(scrape_cli, ["search", "--auth"])
     assert result.exit_code == 0
     assert "authenticated" in result.output
+    mock_scraper.scrape.assert_called_once()
 
 
 def test_scrape_search_with_product(mock_scraper):
@@ -65,6 +67,7 @@ def test_scrape_search_with_product(mock_scraper):
     assert result.exit_code == 0
     assert "vSphere" in result.output
     assert "10" in result.output
+    mock_scraper.scrape.assert_called_once()
 
 
 def test_scrape_search_verbose():
@@ -105,6 +108,7 @@ def test_scrape_fetch_with_auth(mock_scraper):
     result = runner.invoke(scrape_cli, ["fetch", "--numbers", "12345,67890", "--auth"])
     assert result.exit_code == 0
     assert "authenticated" in result.output
+    mock_scraper.download_article.assert_called()
 
 
 def test_scrape_fetch_public_default(mock_scraper):
@@ -113,6 +117,7 @@ def test_scrape_fetch_public_default(mock_scraper):
     result = runner.invoke(scrape_cli, ["fetch", "--numbers", "12345"])
     assert result.exit_code == 0
     assert "public" in result.output
+    mock_scraper.download_article.assert_called()
 
 
 # ── scrape parse ──
@@ -187,3 +192,23 @@ def test_ingest_with_args(runner, tmp_path):
     result = runner.invoke(ingest_main, ["--source", str(source_dir), "--reset"])
     assert result.exit_code == 0
     assert "Reset" in result.output or "Ingestion" in result.output
+
+
+def test_ingest_with_local_flag(runner, tmp_path):
+    """Test that ingest with --local flag shows local embedding hint."""
+    source_dir = tmp_path / "articles"
+    source_dir.mkdir()
+    result = runner.invoke(ingest_main, ["--source", str(source_dir), "--local"])
+    assert result.exit_code == 0
+    assert "local" in result.output.lower() or "Ingestion" in result.output
+
+
+def test_ingest_error_handling(runner, tmp_path):
+    """Test that ingest handles ingestion errors gracefully."""
+    source_dir = tmp_path / "articles"
+    source_dir.mkdir()
+    with patch("src.ingestion.ingest_directory") as mock_ingest:
+        mock_ingest.side_effect = RuntimeError("Embedding failed")
+        result = runner.invoke(ingest_main, ["--source", str(source_dir), "--verbose"])
+        assert result.exit_code == 1
+        assert "Embedding failed" in result.output

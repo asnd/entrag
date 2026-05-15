@@ -6,23 +6,29 @@ Usage:
 
 import logging
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from src.config import get_settings
 from src.retrieval import RetrievalEngine, create_retrieval_engine
+
+if TYPE_CHECKING:
+    import gradio as gr
 
 logger = logging.getLogger(__name__)
 
 
 def create_app(
     engine_factory: Callable[[], RetrievalEngine] = create_retrieval_engine,
-):
+) -> "gr.ChatInterface":
     """Create the Gradio chat interface."""
     import gradio as gr
+
+    engine = engine_factory()
 
     def rag_chat(message: str, _history: list) -> str:
         """Search the indexed KB and return ranked excerpts with citations."""
         try:
-            return engine_factory().answer(message)
+            return engine.answer(message)
         except FileNotFoundError:
             return (
                 "No KB index is available yet. Run `entrag-ingest --source ./data/raw --reset` "
@@ -51,8 +57,8 @@ def create_app(
 
 def main() -> None:
     """Launch the Gradio app."""
-    settings = get_settings()
     demo = create_app()
+    settings = get_settings()
     demo.launch(
         server_name=settings.gradio_server_name,
         server_port=settings.gradio_server_port,

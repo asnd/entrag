@@ -49,7 +49,7 @@ class ParsedKBArticle:
             )
         return self.raw_text
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, object]:
         """Serialize to dictionary."""
         return {
             "article_number": self.article_number,
@@ -109,12 +109,12 @@ class KBArticleParser:
 
         # Load metadata sidecar if available
         meta_path = html_path.with_suffix(".meta.json")
-        metadata: dict = {}
+        metadata: dict[str, object] = {}
         if meta_path.exists():
             try:
                 metadata = json.loads(meta_path.read_text(encoding="utf-8"))
             except json.JSONDecodeError:
-                logger.warning(f"Failed to parse metadata file: {meta_path}")
+                logger.warning("Failed to parse metadata file: %s", meta_path)
 
         return self.parse_html(
             html_content=html_content,
@@ -433,18 +433,20 @@ def parse_directory(directory: Path) -> list[ParsedKBArticle]:
     articles: list[ParsedKBArticle] = []
 
     html_files = sorted(directory.glob("*.html"))
-    logger.info(f"Found {len(html_files)} HTML files in {directory}")
+    logger.info("Found %d HTML files in %s", len(html_files), directory)
 
     for html_path in html_files:
         try:
             article = parser.parse_file(html_path)
             articles.append(article)
             logger.debug(
-                f"Parsed KB{article.article_number}: {article.title} "
-                f"({len(article.sections)} sections)"
+                "Parsed KB %s: %s (%d sections)",
+                article.article_number,
+                article.title,
+                len(article.sections),
             )
         except Exception as e:
-            logger.error(f"Failed to parse {html_path.name}: {e}")
+            logger.error("Failed to parse %s: %s", html_path.name, e)
 
-    logger.info(f"Successfully parsed {len(articles)} articles")
+    logger.info("Successfully parsed %d articles", len(articles))
     return articles

@@ -1,5 +1,6 @@
 """Tests for the KB article HTML parser."""
 
+import json
 from pathlib import Path
 
 from src.scraper.parser import (
@@ -393,8 +394,6 @@ def test_extract_tags():
 
 def test_full_text_property():
     """Test the full_text property."""
-    KBArticleParser()
-
     # When sections exist, full_text should combine them
     article = ParsedKBArticle(
         article_number="11111",
@@ -421,8 +420,6 @@ def test_full_text_property():
 
 def test_to_dict():
     """Test serialization to dictionary."""
-    KBArticleParser()
-
     article = ParsedKBArticle(
         article_number="12345",
         title="Test Article",
@@ -511,3 +508,96 @@ def test_parse_directory_with_files(tmp_path: Path):
     assert len(article2.sections) == 1
     assert article2.sections[0].heading == "Cause"
     assert "Test cause" in article2.sections[0].content
+
+
+def test_parse_file_with_metadata_sidecar(tmp_path: Path):
+    """Test parse_file loads metadata from sidecar JSON."""
+    html_file = tmp_path / "12345.html"
+    html_file.write_text("<html><body><h1>Test</h1></body></html>")
+
+    meta_file = tmp_path / "12345.meta.json"
+    meta_file.write_text(json.dumps({
+        "title": "Sidecar Title",
+        "url": "https://kb.example.com/article/12345",
+        "product": "vSphere",
+        "last_updated": "2024-01-01",
+    }))
+
+    parser = KBArticleParser()
+    article = parser.parse_file(html_file)
+
+    assert article.article_number == "12345"
+    assert article.title == "Sidecar Title"  # from metadata
+    assert article.url == "https://kb.example.com/article/12345"
+    assert article.product == "vSphere"
+    assert article.last_updated == "2024-01-01"
+
+
+def test_parse_file_with_corrupted_metadata(tmp_path: Path, caplog):
+    """Test parse_file handles corrupted metadata gracefully."""
+    html_file = tmp_path / "12345.html"
+    html_file.write_text("<html><body><h1>Test</h1></body></html>")
+
+    meta_file = tmp_path / "12345.meta.json"
+    meta_file.write_text("{invalid json")
+
+    parser = KBArticleParser()
+    article = parser.parse_file(html_file)
+
+    assert article.article_number == "12345"
+    assert article.title == "Test"  # from HTML, not corrupted metadata
+    assert "Failed to parse metadata" in caplog.text
+
+
+def test_parse_directory_mixed_valid_invalid(tmp_path: Path, caplog):
+    """Test parse_directory with mix of valid and invalid HTML files."""
+    # Valid HTML
+    (tmp_path / "11111.html").write_text(
+        "<html><body><h1>Valid</h1><div class='article-content'>"
+        "<h2>Symptoms</h2><p>Content here.</p></div></body></html>"
+    )
+    # Invalid HTML (malformed)
+    (tmp_path / "22222.html").write_text("<not html at all>")
+
+    articles = parse_directory(tmp_path)
+
+    assert len(articles) == 2  # Both files parsed (even malformed)
+    assert articles[0].article_number == "11111"
+
+
+def test_classify_section_all_mappings():
+    """Test all known section type mappings."""
+    parser = KBArticleParser()
+
+    mappings = {
+        "symptoms": "symptom",
+        "Symptom": "symptom",
+        "cause": "cause",
+        "Root Cause": "cause",
+        "resolution": "resolution",
+        "Solution": "resolution",
+        "workaround": "workaround",
+        "Additional Information": "additional_info",
+        "More Information": "additional_info",
+        "purpose": "purpose",
+        "details": "details",
+        "environment": "environment",
+        "prerequisites": "prerequisites",
+        "procedure": "procedure",
+        "Steps": "procedure",
+        "Unknown Section": "general",
+    }
+
+    for heading, expected_type in mappings.items():
+        assert parser._classify_section(heading) == expected_type, f"Failed for: {heading}"
+
+
+def test_find_content_area_returns_none():
+    """Test _find_content_area returns None when no content found."""
+    parser = KBArticleParser()
+
+    html = "<html><body><div>tiny</div></body></html>"
+    article = parser.parse_html(html, "00000")
+
+    # Should fallback to soup, not crash
+    assert article.article_number == "00000"

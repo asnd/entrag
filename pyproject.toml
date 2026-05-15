@@ -19,6 +19,11 @@ dependencies = [
     "lxml",
     # Config
     "pydantic-settings",
+    # MCP server
+    "mcp>=1.0.0",
+    "uvicorn>=0.30.0",
+    "starlette",
+    "PyJWT[crypto]>=2.8.0",
     # Utilities
     "rich",
     "click",
@@ -70,3 +75,4 @@ warn_unused_configs = true
 entrag-scrape = "scripts.scrape:main"
 entrag-ingest = "scripts.ingest:main"
 entrag-serve = "src.app:main"
+entrag-mcp = "src.mcp_server.__main__:main"

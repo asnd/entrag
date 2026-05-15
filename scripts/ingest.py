@@ -6,6 +6,7 @@ Usage:
 """
 
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -40,7 +41,7 @@ def setup_logging(verbose: bool = False) -> None:
     help="Force local embedding model (overrides EMBEDDING_PROVIDER).",
 )
 @click.option("--verbose", "-v", is_flag=True, help="Enable debug logging.")
-def main(source: str, reset: bool, local: bool, verbose: bool) -> None:
+def main(source: str | None, reset: bool, local: bool, verbose: bool) -> None:
     """Ingest KB articles into LanceDB vector store."""
     setup_logging(verbose)
     settings = get_settings()
@@ -55,7 +56,6 @@ def main(source: str, reset: bool, local: bool, verbose: bool) -> None:
     console.print()
 
     if local:
-        import os
         os.environ["EMBEDDING_PROVIDER"] = "local"
         get_settings.cache_clear()
 

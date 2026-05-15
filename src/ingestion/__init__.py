@@ -1,6 +1,7 @@
 """Document ingestion pipeline: parse, chunk, embed, store."""
 
 import logging
+import shutil
 from pathlib import Path
 
 from llama_index.core import Document, StorageContext, VectorStoreIndex
@@ -65,24 +66,24 @@ def ingest_directory(
         Number of document chunks ingested.
     """
     settings = get_settings()
-    logger.info(f"Ingesting articles from {source_dir}...")
+    logger.info("Ingesting articles from %s...", source_dir)
 
     articles = parse_directory(source_dir)
     if not articles:
-        logger.warning(f"No articles found in {source_dir}")
+        logger.warning("No articles found in %s", source_dir)
         return 0
 
-    logger.info(f"Parsed {len(articles)} articles. Creating documents...")
+    logger.info("Parsed %d articles. Creating documents...", len(articles))
 
     all_docs: list[Document] = []
     for article in articles:
         docs = _article_to_documents(article)
         all_docs.extend(docs)
 
-    logger.info(f"Total documents (chunks): {len(all_docs)}")
+    logger.info("Total documents (chunks): %d", len(all_docs))
 
     # Always use LiteLLM (supports both remote and local models)
-    logger.info(f"Using embedding via LiteLLM: {settings.litellm_embedding_model}")
+    logger.info("Using embedding via LiteLLM: %s", settings.litellm_embedding_model)
     embed_model = LiteLLMEmbedding(
         model=settings.litellm_embedding_model,
         api_base=settings.litellm_base_url,
@@ -98,8 +99,7 @@ def ingest_directory(
     # Set up vector store
     lancedb_path = Path(settings.lancedb_path)
     if reset and lancedb_path.exists():
-        logger.warning(f"Resetting vector store at {lancedb_path}")
-        import shutil
+        logger.warning("Resetting vector store at %s", lancedb_path)
         shutil.rmtree(lancedb_path)
 
     lancedb_path.parent.mkdir(parents=True, exist_ok=True)
@@ -107,7 +107,7 @@ def ingest_directory(
     storage_context = StorageContext.from_defaults(vector_store=vector_store)
 
     logger.info("Building vector index (this may take a while with local embeddings)...")
-    VectorStoreIndex.from_documents(
+    _ = VectorStoreIndex.from_documents(
         all_docs,
         storage_context=storage_context,
         embed_model=embed_model,
@@ -116,7 +116,7 @@ def ingest_directory(
     )
 
     logger.info(
-        f"Successfully ingested {len(all_docs)} chunks into LanceDB at {lancedb_path}"
+        "Successfully ingested %d chunks into LanceDB at %s", len(all_docs), lancedb_path
     )
     return len(all_docs)
 
