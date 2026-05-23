@@ -62,7 +62,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build container image
-        run: docker build -f Dockerfile -t entrag:ci .
+        run: docker build -f Containerfile -t entrag:ci .
 
       - name: Smoke test container
         run: docker run --rm entrag:ci python -c "import src; print('OK')"
