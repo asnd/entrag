@@ -179,8 +179,9 @@ def test_ingest_help(runner):
 
 
 def test_ingest_default(runner):
-    """Test that ingest shows placeholder message."""
-    result = runner.invoke(ingest_main, [])
+    """Test that ingest runs with defaults without hitting real LiteLLM."""
+    with patch("src.ingestion.ingest_directory", return_value=0):
+        result = runner.invoke(ingest_main, [])
     assert result.exit_code == 0
     assert "Ingestion" in result.output
 

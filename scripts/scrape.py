@@ -154,7 +154,7 @@ def fetch(numbers: str, output: str | None, auth: bool, verbose: bool) -> None:
 
 async def _run_fetch(article_numbers: list[str], output_dir: Path, use_auth: bool = False) -> None:
     """Fetch specific articles by number."""
-    from src.scraper.broadcom_kb import BROADCOM_KB_ARTICLE_URL
+    from src.scraper.broadcom_kb import BROADCOM_KB_ARTICLE_BASE
 
     async with BroadcomKBScraper(output_dir=output_dir, use_auth=use_auth) as scraper:
         if use_auth:
@@ -164,7 +164,7 @@ async def _run_fetch(article_numbers: list[str], output_dir: Path, use_auth: boo
             meta = KBArticleMeta(
                 article_number=num,
                 title="",
-                url=f"{BROADCOM_KB_ARTICLE_URL}?articleNumber={num}",
+                url=f"{BROADCOM_KB_ARTICLE_BASE}/{num}",
             )
             try:
                 path = await scraper.download_article(meta)

@@ -15,6 +15,7 @@ from llama_index.core.vector_stores.types import (
 )
 from llama_index.embeddings.litellm import LiteLLMEmbedding
 from llama_index.vector_stores.lancedb import LanceDBVectorStore
+from llama_index.vector_stores.lancedb.base import TableNotFoundError
 
 from src.config import Settings, get_settings
 
@@ -75,24 +76,30 @@ class RetrievalEngine:
         self._embed_model = embed_model or self._build_embed_model()
 
     def _build_vector_store(self) -> LanceDBVectorStore:
-        """Open the persisted LanceDB vector store."""
-        lancedb_path = Path(self.settings.lancedb_path)
-        if not lancedb_path.exists():
-            raise FileNotFoundError(
-                f"LanceDB index not found at {lancedb_path}. Run entrag-ingest before querying."
-            )
+        """Open the persisted LanceDB vector store, creating it if no data has been ingested yet."""
+        import lancedb as _lancedb
 
-        return LanceDBVectorStore(
+        lancedb_path = Path(self.settings.lancedb_path)
+        lancedb_path.mkdir(parents=True, exist_ok=True)
+
+        db = _lancedb.connect(str(lancedb_path))
+        mode = "append" if "vectors" in db.table_names() else "overwrite"
+
+        store = LanceDBVectorStore(
             uri=str(lancedb_path),
-            mode="append",
+            mode=mode,
             query_type="hybrid",
         )
+        # FTS index is pre-built at ingest time; skip recreation on every query
+        # to avoid RuntimeError commit conflicts under concurrent requests.
+        store._fts_index_ready = True
+        return store
 
     def _build_embed_model(self) -> LiteLLMEmbedding:
         """Create the LiteLLM embedding client used for query embeddings."""
         self.settings.validate_litellm_api_key()
         return LiteLLMEmbedding(
-            model=self.settings.resolved_embedding_model(),
+            model_name=self.settings.resolved_embedding_model(),
             api_base=self.settings.resolved_litellm_base_url(),
             api_key=self.settings.litellm_api_key,
         )
@@ -156,7 +163,9 @@ class RetrievalEngine:
         )
         try:
             return self._vector_store.query(hybrid_query)
-        except (AttributeError, NotImplementedError) as exc:  # pragma: no cover
+        except TableNotFoundError:
+            return VectorStoreQueryResult(nodes=[], similarities=[], ids=[])
+        except (AttributeError, NotImplementedError, RuntimeError) as exc:
             logger.warning("Hybrid search unavailable, falling back to vector search: %s", exc)
             fallback_query = VectorStoreQuery(
                 query_embedding=query_embedding,
@@ -164,7 +173,7 @@ class RetrievalEngine:
                 similarity_top_k=similarity_top_k,
                 mode=VectorStoreQueryMode.DEFAULT,
             )
-            return self._vector_store.query(fallback_query)
+            return self._vector_store.query(fallback_query, query_type="vector")
 
     def _to_retrieved_chunks(self, result: VectorStoreQueryResult) -> list[RetrievedChunk]:
         """Convert raw vector-store results into normalized chunks."""

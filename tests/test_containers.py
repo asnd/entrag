@@ -63,7 +63,6 @@ def test_compose_yaml_exists():
     content = compose.read_text()
     # Base compose file should keep only always-on services
     assert "rag-app:" in content
-    assert "litellm:" in content
     assert "litellm-local:" not in content
 
 

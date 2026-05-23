@@ -7,9 +7,25 @@ from pydantic import ValidationError
 
 from src.config import Settings
 
+_ALL_SETTINGS_ENV_KEYS = [
+    "LITELLM_BASE_URL", "LITELLM_API_KEY", "LITELLM_MODEL",
+    "EMBEDDING_PROVIDER", "LITELLM_EMBEDDING_MODEL", "LOCAL_EMBEDDING_MODEL",
+    "SCRAPER_USE_AUTH", "BROADCOM_USERNAME", "BROADCOM_PASSWORD",
+    "SCRAPER_DELAY_SECONDS", "SCRAPER_MAX_ARTICLES", "SCRAPER_OUTPUT_DIR",
+    "LANCEDB_PATH", "GRADIO_SERVER_NAME", "GRADIO_SERVER_PORT",
+    "RERANKER_MODEL", "RERANKER_TOP_N",
+    "RETRIEVAL_SIMILARITY_TOP_K", "RETRIEVAL_HYBRID_ALPHA",
+]
 
-def test_settings_defaults():
+
+def test_settings_defaults(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     """Test that default settings are loaded correctly."""
+    # chdir to tmp_path so the project .env is not found, and clear any
+    # exported env vars that would shadow the defaults.
+    monkeypatch.chdir(tmp_path)
+    for key in _ALL_SETTINGS_ENV_KEYS:
+        monkeypatch.delenv(key, raising=False)
+
     settings = Settings()
 
     # LiteLLM defaults
@@ -86,6 +102,10 @@ def test_settings_from_env(monkeypatch: pytest.MonkeyPatch):
 
 def test_settings_from_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Test loading settings from .env file."""
+    # Clear env vars so they don't shadow values in the test file
+    for key in _ALL_SETTINGS_ENV_KEYS:
+        monkeypatch.delenv(key, raising=False)
+
     env_file = tmp_path / ".test.env"
     env_file.write_text("""
 LITELLM_BASE_URL=http://file.test:9000

@@ -28,8 +28,10 @@ logger = logging.getLogger(__name__)
 
 # Broadcom KB portal endpoints
 BROADCOM_LOGIN_URL = "https://support.broadcom.com/auth/login"
-BROADCOM_KB_SEARCH_URL = "https://www.broadcom.com/support/knowledgebase"
-BROADCOM_KB_ARTICLE_URL = "https://www.broadcom.com/support/knowledgebase/article"
+BROADCOM_KB_SEARCH_URL = "https://knowledge.broadcom.com/external/search"
+BROADCOM_KB_ARTICLE_BASE = "https://knowledge.broadcom.com/external/article"
+# Legacy alias kept for any external references
+BROADCOM_KB_ARTICLE_URL = BROADCOM_KB_ARTICLE_BASE
 
 
 @dataclass
@@ -299,15 +301,13 @@ class BroadcomKBScraper:
                 logger.error("Search failed at page %d: %s", page, e)
                 break
 
-            # Parse search results
-            # The actual response format depends on Broadcom's API
-            # This handles both JSON API and HTML page scraping
             content_type = response.headers.get("content-type", "")
 
             if "application/json" in content_type:
                 data = response.json()
-                articles = data.get("results", data.get("articles", []))
-                total = data.get("total", 0)
+                # knowledge.broadcom.com returns {"articles": [...], "total": N}
+                articles = data.get("articles", data.get("results", []))
+                total = data.get("total", data.get("totalCount", 0))
                 self.state.total_found = total
 
                 if not articles:
@@ -316,22 +316,24 @@ class BroadcomKBScraper:
                 for article in articles:
                     if yielded >= max_results:
                         return
+                    article_id = str(
+                        article.get("id", article.get("articleNumber", ""))
+                    )
                     meta = KBArticleMeta(
-                        article_number=str(
-                            article.get("articleNumber", article.get("id", ""))
-                        ),
+                        article_number=article_id,
                         title=article.get("title", ""),
-                        url=article.get("url", f"{BROADCOM_KB_ARTICLE_URL}/{article.get('id')}"),
+                        url=article.get(
+                            "url", f"{BROADCOM_KB_ARTICLE_BASE}/{article_id}"
+                        ),
                         product=article.get("product", ""),
-                        last_updated=article.get("lastUpdated", ""),
+                        last_updated=article.get("lastUpdated", article.get("updatedOn", "")),
                         relevance_score=float(article.get("score", 0)),
                     )
                     yield meta
                     yielded += 1
             else:
-                # HTML response — parse with BeautifulSoup
+                # HTML response — parse article links from the page
                 soup = BeautifulSoup(response.text, "lxml")
-                # Look for article links in search results
                 article_links = soup.select(
                     'a[href*="/external/article"], '
                     'a[href*="articleNumber"], '
@@ -348,12 +350,9 @@ class BroadcomKBScraper:
                         return
                     href = link.get("href", "")
                     title = link.get_text(strip=True)
-
-                    # Extract article number from URL
                     article_number = self._extract_article_number(href)
                     if not article_number:
                         continue
-
                     meta = KBArticleMeta(
                         article_number=article_number,
                         title=title,

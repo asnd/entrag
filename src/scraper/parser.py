@@ -174,31 +174,35 @@ class KBArticleParser:
 
     def _extract_title(self, soup: BeautifulSoup, metadata: dict) -> str:
         """Extract article title."""
-        # Priority: metadata > h1 > title tag
         if metadata.get("title"):
             return metadata["title"]
+
+        # knowledge.broadcom.com: title is in <h3 class="wolken-h3"> inside article-header
+        wolken_h3 = soup.select_one(".article-header .wolken-h3, h3.wolken-h3")
+        if wolken_h3:
+            return wolken_h3.get_text(strip=True)
+
+        title_tag = soup.find("title")
+        if title_tag:
+            text = title_tag.get_text(strip=True)
+            for suffix in [" - VMware", " - Broadcom", " | Knowledge Base", " | Broadcom"]:
+                text = text.removesuffix(suffix)
+            return text
 
         h1 = soup.find("h1")
         if h1:
             return h1.get_text(strip=True)
 
-        title_tag = soup.find("title")
-        if title_tag:
-            text = title_tag.get_text(strip=True)
-            # Remove common suffixes
-            for suffix in [" - VMware", " - Broadcom", " | Knowledge Base"]:
-                text = text.removesuffix(suffix)
-            return text
-
         return ""
 
     def _find_content_area(self, soup: BeautifulSoup) -> Tag | None:
-        """Find the main content area of the KB article.
-
-        VMware KB articles typically have a specific content container.
-        """
-        # Try common content area selectors
+        """Find the main content area of the KB article."""
         selectors = [
+            # knowledge.broadcom.com structure
+            ".wolken-content-container",
+            ".article-container",
+            ".article-page",
+            # Legacy broadcom.com structure
             ".article-content",
             ".kb-article-content",
             "#article-content",
@@ -215,7 +219,6 @@ class KBArticleParser:
             if element and len(element.get_text(strip=True)) > 20:
                 return element
 
-        # Fallback: find the largest text block
         body = soup.find("body")
         if body:
             divs = body.find_all("div")
@@ -227,37 +230,68 @@ class KBArticleParser:
         return None
 
     def _extract_sections(self, content: Tag | BeautifulSoup) -> list[KBSection]:
-        """Extract structured sections from KB article content.
+        """Extract structured sections from KB article content."""
+        # knowledge.broadcom.com: each section is a div.article-detail-card
+        cards = content.find_all("div", class_="article-detail-card")
+        if cards:
+            return self._parse_detail_cards(cards)
 
-        VMware KB articles typically follow a pattern:
-        - Symptoms
-        - Cause
-        - Resolution / Workaround
-        - Additional Information
-        """
+        # Legacy: headings followed by sibling content
+        return self._parse_heading_sections(content)
+
+    def _parse_detail_cards(self, cards: list[Tag]) -> list[KBSection]:
+        """Parse knowledge.broadcom.com article-detail-card sections."""
         sections: list[KBSection] = []
+        # Skip-list for non-content cards (Products card has no prose worth indexing)
+        skip_headings = {"products"}
 
-        # Find all heading elements
+        for card in cards:
+            header_el = card.select_one(
+                ".article-detail-card-header h4, .article-detail-card-header h3"
+            )
+            heading = header_el.get_text(strip=True) if header_el else ""
+            if not heading or heading.lower() in skip_headings:
+                continue
+
+            content_el = card.select_one(".article-detail-card-content")
+            if not content_el:
+                continue
+
+            # Strip scripts/styles inside the card
+            for tag in content_el.find_all(["script", "style"]):
+                tag.decompose()
+
+            text = content_el.get_text(separator="\n", strip=True)
+            text = re.sub(r"\n{3,}", "\n\n", text).strip()
+            if not text:
+                continue
+
+            sections.append(KBSection(
+                heading=heading,
+                content=text,
+                section_type=self._classify_section(heading),
+            ))
+
+        return sections
+
+    def _parse_heading_sections(self, content: Tag | BeautifulSoup) -> list[KBSection]:
+        """Legacy parser: headings followed by sibling content."""
+        sections: list[KBSection] = []
         headings = content.find_all(["h2", "h3", "h4", "strong", "b"])
 
-        for i, heading in enumerate(headings):
+        for heading in headings:
             heading_text = heading.get_text(strip=True).rstrip(":")
             if not heading_text:
                 continue
 
-            # Determine section type
             section_type = self._classify_section(heading_text)
-
-            # Get content between this heading and the next
             content_parts: list[str] = []
             sibling = heading.next_sibling
 
             while sibling:
                 if isinstance(sibling, Tag):
-                    # Stop at the next heading
                     if sibling.name in ["h2", "h3", "h4"]:
                         break
-                    # Also stop at bold/strong that looks like a section heading
                     if sibling.name in ["strong", "b"]:
                         text = sibling.get_text(strip=True)
                         if text.rstrip(":").lower() in SECTION_TYPE_MAP:
@@ -268,15 +302,12 @@ class KBArticleParser:
                 sibling = sibling.next_sibling
 
             section_content = "\n".join(p for p in content_parts if p)
-
             if section_content:
-                sections.append(
-                    KBSection(
-                        heading=heading_text,
-                        content=section_content,
-                        section_type=section_type,
-                    )
-                )
+                sections.append(KBSection(
+                    heading=heading_text,
+                    content=section_content,
+                    section_type=section_type,
+                ))
 
         return sections
 
@@ -300,41 +331,39 @@ class KBArticleParser:
         self, soup: BeautifulSoup, metadata: dict
     ) -> tuple[str, str]:
         """Extract product name and version from the article."""
-        product = metadata.get("product", "")
-        version = metadata.get("version", "")
+        product = str(metadata.get("product", ""))
+        version = str(metadata.get("version", ""))
 
-        # Look for product info in meta tags
-        meta_product = soup.find("meta", attrs={"name": re.compile(r"product", re.I)})
-        if meta_product and isinstance(meta_product, Tag):
-            product = product or meta_product.get("content", "") or meta_product.get("value", "")
+        # knowledge.broadcom.com: products listed as <span class="product-chip">
+        chips = soup.select(".product-chip")
+        if chips and not product:
+            product = ", ".join(c.get_text(strip=True) for c in chips if c.get_text(strip=True))
 
-        # Look for product breadcrumbs or labels
-        product_elements = soup.select(
-            '.product-name, .breadcrumb a, [class*="product"], '
-            'span[class*="label"]'
-        )
-        for el in product_elements:
-            text = el.get_text(strip=True)
-            if any(
-                p in text.lower()
-                for p in ["vsphere", "vcenter", "esxi", "nsx", "vsan", "horizon", "aria"]
-            ):
-                product = product or text
-                break
+        if not product:
+            meta_product = soup.find("meta", attrs={"name": re.compile(r"product", re.I)})
+            if meta_product and isinstance(meta_product, Tag):
+                product = str(meta_product.get("content", "") or meta_product.get("value", ""))
 
-        # Try to extract version from meta tag first
+        if not product:
+            vmware_products = ["vsphere", "vcenter", "esxi", "nsx", "vsan", "horizon", "aria"]
+            legacy_sel = '.product-name, .breadcrumb a, [class*="product"], span[class*="label"]'
+            for el in soup.select(legacy_sel):
+                text = el.get_text(strip=True)
+                if any(p in text.lower() for p in vmware_products):
+                    product = text
+                    break
+
         if not version:
             meta_version = soup.find("meta", attrs={"name": re.compile(r"version", re.I)})
             if meta_version and isinstance(meta_version, Tag):
-                version = meta_version.get("content", "") or meta_version.get("value", "")
+                version = str(meta_version.get("content", "") or meta_version.get("value", ""))
 
-        # Try to extract version from page elements
         if not version:
             version_pattern = re.compile(
                 r"(\d+\.\d+(?:\.\d+)?(?:\s*(?:U\d+|Update\s*\d+|Build\s*\d+))?)"
             )
-            version_elements = soup.select('[class*="version"], .article-meta')
-            for el in version_elements:
+            version_sel = '[class*="version"], .article-meta, .article-detail-card-content'
+            for el in soup.select(version_sel):
                 match = version_pattern.search(el.get_text())
                 if match:
                     version = match.group(1)
@@ -345,9 +374,19 @@ class KBArticleParser:
     def _extract_date(self, soup: BeautifulSoup, metadata: dict) -> str:
         """Extract last updated date."""
         if metadata.get("last_updated"):
-            return metadata["last_updated"]
+            return str(metadata["last_updated"])
 
-        # Look for date in meta tags or page content
+        # knowledge.broadcom.com: "Updated On: <date>" inside .article-updated-time
+        for el in soup.select(".article-updated-time"):
+            text = el.get_text(strip=True)
+            # Skip the "Article ID: XXXXXX" row
+            if re.search(r"\d{4}", text):
+                for prefix in ["Updated On:", "Updated:", "Last Updated:"]:
+                    if text.startswith(prefix):
+                        text = text[len(prefix):].strip()
+                        break
+                return text
+
         date_selectors = [
             'meta[name="last-modified"]',
             'meta[name="date"]',
@@ -356,14 +395,12 @@ class KBArticleParser:
             ".article-date",
             '[class*="date"]',
         ]
-
         for selector in date_selectors:
             el = soup.select_one(selector)
             if el:
                 if isinstance(el, Tag) and el.name == "meta":
-                    return el.get("content", "")
+                    return str(el.get("content", ""))
                 text = el.get_text(strip=True)
-                # Strip common label prefixes
                 for prefix in [
                     "Last Updated:", "Last Modified:", "Date:",
                     "Updated:", "Modified:", "Published:",

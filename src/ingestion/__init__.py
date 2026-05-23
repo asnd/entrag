@@ -85,7 +85,7 @@ def ingest_directory(
     # Always use LiteLLM (supports both remote and local models)
     logger.info("Using embedding via LiteLLM: %s", settings.litellm_embedding_model)
     embed_model = LiteLLMEmbedding(
-        model=settings.litellm_embedding_model,
+        model_name=settings.litellm_embedding_model,
         api_base=settings.litellm_base_url,
         api_key=settings.litellm_api_key,
     )
@@ -114,6 +114,15 @@ def ingest_directory(
         transformations=[splitter],
         show_progress=True,
     )
+
+    # Pre-build the FTS index so the app doesn't have to create it on every query.
+    # Without this, LanceDB raises a commit conflict when concurrent queries all
+    # try to run create_fts_index(replace=True) simultaneously.
+    import lancedb as _lancedb
+    _db = _lancedb.connect(str(lancedb_path))
+    if "vectors" in _db.table_names():
+        _db.open_table("vectors").create_fts_index("text", replace=True)
+        logger.info("FTS index created on vectors table.")
 
     logger.info(
         "Successfully ingested %d chunks into LanceDB at %s", len(all_docs), lancedb_path
