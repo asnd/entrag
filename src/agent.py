@@ -31,6 +31,12 @@ logger = logging.getLogger(__name__)
 MAX_TOKENS = 4096
 TEMPERATURE = 0.1
 DEFAULT_MAX_ROUNDS = 4
+# Hard timeout per LiteLLM call — reasoning models can legitimately take 30-60s,
+# but we don't want to hang indefinitely if the corporate proxy drops the connection.
+REQUEST_TIMEOUT = 120
+# Max characters of KB text injected per chunk as a tool result.
+# Keeps total context manageable for the reasoning model.
+_KB_CHUNK_TRUNCATE = 1200
 # Characters per emitted chunk when rendering the final answer progressively.
 _EMIT_CHUNK_SIZE = 24
 
@@ -97,7 +103,7 @@ def format_kb_context(chunks: list[RetrievedChunk]) -> str:
         parts.append(
             f"[{i}] KB{chunk.article_number}: {chunk.title}\n"
             f"Section: {section}{heading}\n\n"
-            f"{chunk.text}"
+            f"{chunk.text[:_KB_CHUNK_TRUNCATE]}"
         )
     return "\n\n---\n\n".join(parts)
 
@@ -154,6 +160,7 @@ def _complete(
         "api_key": settings.litellm_api_key,
         "temperature": TEMPERATURE,
         "max_tokens": MAX_TOKENS,
+        "request_timeout": REQUEST_TIMEOUT,
     }
     if tools:
         kwargs["tools"] = tools
