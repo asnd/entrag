@@ -31,8 +31,8 @@ def test_dockerfile_app_exists():
     # Should NOT contain local/playwright deps
     assert "sentence-transformers" not in effective_content
     assert 'uv pip install -e ".[playwright]"' not in effective_content
-    # Should have gradio and core deps
-    assert "gradio" in content.lower() or "src.app" in content
+    # Should launch the Chainlit UI
+    assert "chainlit" in content.lower() or "src.chat_app" in content
 
 
 def test_dockerfile_scraper_exists():

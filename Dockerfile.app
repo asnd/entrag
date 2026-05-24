@@ -1,5 +1,5 @@
 # Lean application image (~500MB)
-# Contains: Gradio UI, LlamaIndex, LanceDB, scraping tools
+# Contains: Chainlit UI, LlamaIndex, LanceDB, scraping tools
 # Does NOT contain: PyTorch, sentence-transformers, Playwright
 
 FROM python:3.12-slim
@@ -22,6 +22,8 @@ RUN uv venv /app/.venv && \
 COPY src/ src/
 COPY scripts/ scripts/
 COPY tests/ tests/
+COPY .chainlit/ .chainlit/
+COPY chainlit.md .
 
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONPATH="/app"
@@ -33,4 +35,4 @@ VOLUME ["/app/data"]
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD python -c "import httpx; httpx.get('http://localhost:7860/')" || exit 1
 
-CMD ["python", "-m", "src.app"]
+CMD ["chainlit", "run", "src/chat_app.py", "--host", "0.0.0.0", "--port", "7860", "--headless"]

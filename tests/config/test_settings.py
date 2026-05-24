@@ -12,7 +12,7 @@ _ALL_SETTINGS_ENV_KEYS = [
     "EMBEDDING_PROVIDER", "LITELLM_EMBEDDING_MODEL", "LOCAL_EMBEDDING_MODEL",
     "SCRAPER_USE_AUTH", "BROADCOM_USERNAME", "BROADCOM_PASSWORD",
     "SCRAPER_DELAY_SECONDS", "SCRAPER_MAX_ARTICLES", "SCRAPER_OUTPUT_DIR",
-    "LANCEDB_PATH", "GRADIO_SERVER_NAME", "GRADIO_SERVER_PORT",
+    "LANCEDB_PATH", "SERVER_HOST", "SERVER_PORT",
     "RERANKER_MODEL", "RERANKER_TOP_N",
     "RETRIEVAL_SIMILARITY_TOP_K", "RETRIEVAL_HYBRID_ALPHA",
 ]
@@ -49,9 +49,9 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     # LanceDB defaults
     assert settings.lancedb_path == Path("./data/lancedb")
 
-    # Gradio defaults
-    assert settings.gradio_server_name == "0.0.0.0"
-    assert settings.gradio_server_port == 7860
+    # Web server defaults
+    assert settings.server_host == "0.0.0.0"
+    assert settings.server_port == 7860
 
     # Reranker defaults
     assert settings.reranker_model == "cross-encoder/ms-marco-MiniLM-L-6-v2"

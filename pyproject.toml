@@ -11,8 +11,9 @@ dependencies = [
     "llama-index-vector-stores-lancedb",
     # Vector store
     "lancedb>=0.15",
+    "pandas>=1.4",
     # Frontend
-    "gradio>=5.0",
+    "chainlit>=2.7.0",
     # Scraping (lightweight)
     "httpx",
     "beautifulsoup4",
@@ -74,5 +75,5 @@ warn_unused_configs = true
 [project.scripts]
 entrag-scrape = "scripts.scrape:main"
 entrag-ingest = "scripts.ingest:main"
-entrag-serve = "src.app:main"
+entrag-serve = "src.chat_app:main"
 entrag-mcp = "src.mcp_server.__main__:main"

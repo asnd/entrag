@@ -1,6 +1,6 @@
 # EntRAG
 
-EntRAG is a VMware/Broadcom knowledge-base retrieval app. It scrapes KB articles, parses them into structured sections, indexes them in LanceDB, and exposes a Gradio interface that returns grounded KB excerpts with citations.
+EntRAG is a VMware/Broadcom knowledge-base assistant. It scrapes KB articles, parses them into structured sections, indexes them in LanceDB, and exposes a Chainlit chat where an LLM agent answers questions grounded in the indexed KB — with citations. Users can connect external MCP servers from the chat to extend the agent with extra tools.
 
 ## What is implemented
 
@@ -8,19 +8,20 @@ EntRAG is a VMware/Broadcom knowledge-base retrieval app. It scrapes KB articles
 - HTML parsing into structured sections such as Symptoms, Cause, and Resolution
 - LanceDB-backed ingestion with metadata-preserving chunks
 - Hybrid retrieval over the stored index, with lightweight reranking biased toward actionable sections
-- A Gradio UI that queries the index instead of returning a placeholder
-- Pytest and Ruff coverage for config, scraping, parsing, retrieval, app wiring, and container layout
+- An agentic LLM layer: the model calls a `kb_search` tool (and any connected MCP tools) and synthesises a cited answer
+- A Chainlit chat UI with a native MCP button so users can connect MCP servers at runtime
+- Pytest and Ruff coverage for config, scraping, parsing, retrieval, the agent loop, and container layout
 
-## Current retrieval behavior
+## Current runtime behavior
 
-The runtime is retrieval-first:
+The runtime is an agentic, retrieval-grounded chat:
 
-1. Query embedding is generated through LiteLLM
-2. LanceDB hybrid search retrieves candidate chunks
-3. A lightweight reranker boosts exact term overlap and section intent
-4. The UI returns the strongest KB excerpts and source links
+1. The user asks a question in the Chainlit UI
+2. The LLM is offered a `kb_search` tool plus any tools from connected MCP servers
+3. For KB questions it calls `kb_search`, which runs LiteLLM query embedding → LanceDB hybrid search → reranking
+4. Tool results are fed back and the model synthesises a cited answer, emitted progressively
 
-This keeps responses grounded in indexed content and makes retrieval quality observable before adding a full answer-synthesis layer.
+This keeps responses grounded in indexed content while letting the agent reach beyond the KB through user-connected MCP tools.
 
 ## Architecture
 
@@ -28,7 +29,7 @@ This keeps responses grounded in indexed content and makes retrieval quality obs
 
 | Component | Responsibility |
 | --- | --- |
-| `rag-app` | Gradio UI and retrieval |
+| `rag-app` | Chainlit chat UI, agentic LLM, and retrieval |
 | `litellm` | Model proxy for embeddings and optional generation |
 | `scraper` | One-shot article collection job |
 | `ingest` | One-shot parsing + embedding + indexing job |
@@ -43,18 +44,21 @@ Broadcom KB search/download
   -> ingestion chunks and embeds content
   -> LanceDB stores vectors + metadata
   -> retrieval queries LanceDB and reranks matches
-  -> Gradio returns cited excerpts
+  -> LLM agent (kb_search + connected MCP tools) synthesises a cited answer
+  -> Chainlit streams the answer to the user
 ```
 
 ## Repository layout
 
 ```text
 src/
-  app.py                Gradio entrypoint
+  chat_app.py           Chainlit entrypoint (UI + MCP connect/disconnect handlers)
+  agent.py              Agentic tool-calling loop (kb_search + MCP tools)
   config.py             Settings and runtime resolution helpers
   ingestion/            Parsing -> chunking -> LanceDB indexing
   retrieval/            Hybrid search and reranking
   scraper/              Broadcom KB scraper and parser
+  mcp_server/           EntRAG-as-MCP-server (rag_query/scrape/ingest tools)
 scripts/
   scrape.py             CLI wrapper for scraping
   ingest.py             CLI wrapper for ingestion
@@ -102,7 +106,7 @@ docker compose -f compose.yaml -f compose.jobs.yaml run --rm ingest \
 
 ### 5. Query the app
 
-- UI: http://localhost:7860
+- Chainlit UI: http://localhost:7860
 - LiteLLM health/API proxy: http://localhost:4000
 
 Ask product, version, error, or symptom-specific questions such as:
@@ -110,6 +114,10 @@ Ask product, version, error, or symptom-specific questions such as:
 - `How do I fix an ESXi host boot failure after a patch?`
 - `What are the symptoms of vCenter certificate issues?`
 - `Why does NSX Manager fail to start after upgrade?`
+
+To extend the agent, click the **🔌 MCP** button in the chat input and connect an MCP
+server (SSE, streamable-HTTP, or a stdio command). Its tools become available to the
+assistant for the rest of the session — including EntRAG's own `entrag-mcp` server.
 
 ## CLI usage
 
@@ -176,7 +184,7 @@ The test suite covers:
 - scraper state, search, download, and auth behavior
 - parser extraction and serialization
 - retrieval ranking and answer formatting
-- app error handling
+- the agentic tool-calling loop and MCP tool wiring
 - container and compose layout expectations
 
 ## Additional guides

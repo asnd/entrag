@@ -42,9 +42,9 @@ class Settings(BaseSettings):
     scraper_max_articles: int = Field(default=100, ge=1)
     scraper_output_dir: Path = Field(default=Path("./data/raw"))
 
-    # Gradio
-    gradio_server_name: str = Field(default="0.0.0.0")
-    gradio_server_port: int = Field(default=7860, ge=1, le=65535)
+    # Web server (Chainlit UI)
+    server_host: str = Field(default="0.0.0.0")
+    server_port: int = Field(default=7860, ge=1, le=65535)
 
     # Reranker
     reranker_model: str = Field(default="cross-encoder/ms-marco-MiniLM-L-6-v2")

@@ -9,7 +9,8 @@ VMware/Broadcom Knowledge Base RAG (Retrieval-Augmented Generation) application.
 | **Orchestration** | LlamaIndex | Purpose-built for RAG, native LiteLLM integration |
 | **LLM Gateway** | LiteLLM Proxy | Unified API for any model, `/v1/chat` + `/v1/embeddings` |
 | **Vector DB** | LanceDB | File-based, hybrid search (vector + BM25 FTS), scales to 100k+ |
-| **Frontend** | Gradio | Auto REST API at `/api/rag_query`, streaming chat |
+| **Frontend** | Chainlit | Agentic chat with native MCP client (connect MCP servers from the UI) |
+| **Agent** | LiteLLM tool calling | `kb_search` + connected MCP tools, tool-calling loop |
 | **Scraper** | httpx + BeautifulSoup | Async HTTP with rate limiting, public-first default |
 | **Config** | pydantic-settings | Env/file config with validation |
 | **CLI** | Click + Rich | Structured commands with progress bars |
@@ -23,9 +24,9 @@ VMware/Broadcom Knowledge Base RAG (Retrieval-Augmented Generation) application.
 │  ┌────────────────────────┐  ┌────────────────────────┐ │
 │  │    entrag-app :7860    │  │  entrag-litellm :4000  │ │
 │  │                        │  │                        │ │
-│  │  Gradio ChatInterface  │  │  LiteLLM Proxy         │ │
-│  │    + /api/rag_query     │──►  /v1/chat/completions │ │
-│  │                        │  │  /v1/embeddings        │ │
+│  │  Chainlit chat + MCP   │  │  LiteLLM Proxy         │ │
+│  │  agent (tool calling)  │──►  /v1/chat/completions │ │
+│  │   kb_search + MCP tools│  │  /v1/embeddings        │ │
 │  │  LlamaIndex Pipeline   │  │                        │ │
 │  │  ┌──────────────────┐  │  └────────────────────────┘ │
 │  │  │ HybridRetriever  │  │                              │
@@ -66,11 +67,11 @@ Offline pipeline:
 - Embedding via LiteLLM `/v1/embeddings`
 - Hybrid index in LanceDB (vector + full-text)
 
-### Phase 4-5 — Retrieve & Serve (planned)
+### Phase 4-5 — Retrieve & Serve
 - Hybrid retrieval (vector cosine + BM25 keyword)
 - Cross-encoder reranking (via LiteLLM or local sentence-transformers)
-- LLM response synthesis with source citations
-- Gradio ChatInterface with `/api/rag_query` REST endpoint
+- Agentic synthesis: the LLM calls `kb_search` (and connected MCP tools) and writes a cited answer (`src/agent.py`)
+- Chainlit chat UI with a native MCP button; `@cl.on_mcp_connect` registers user-connected MCP servers (`src/chat_app.py`)
 
 ### Phase 6 — Evaluate (planned)
 - Ragas metrics: context relevancy, faithfulness, answer relevancy
@@ -87,7 +88,7 @@ entrag (base, ~800MB container)
 ├── lancedb                   File-based vector store
 │   ├── pylance               Native columnar engine
 │   └── pyarrow               Apache Arrow (in-memory)
-├── gradio                    Chat UI + REST API
+├── chainlit                  Agentic chat UI + native MCP client
 ├── httpx                     Async HTTP client
 ├── beautifulsoup4 + lxml     HTML parsing
 ├── pydantic-settings         Env/file config
@@ -154,8 +155,10 @@ python -m scripts.scrape status
 # Ingest into vector store (Phase 3)
 python -m scripts.ingest run --source data/raw --reset
 
-# Start RAG app
-python -m src.app
+# Start RAG app (Chainlit)
+chainlit run src/chat_app.py
+# or the console script
+entrag-serve
 ```
 
 ## Container Build
