@@ -142,10 +142,14 @@ def main() -> None:
             async def shutdown(received_signal: signal.Signals) -> None:
                 logger.info("Shutting down EntRAG MCP server after %s...", received_signal.name)
 
+            def schedule_shutdown(received_signal: signal.Signals) -> None:
+                asyncio.create_task(shutdown(received_signal))
+
             for sig in (signal.SIGTERM, signal.SIGINT):
                 loop.add_signal_handler(
                     sig,
-                    lambda received_signal=sig: asyncio.create_task(shutdown(received_signal)),
+                    schedule_shutdown,
+                    sig,
                 )
 
             config = uvicorn.Config(

@@ -705,10 +705,10 @@ async def test_cache_read_race_redownloads_article(
 
     original_read_text = Path.read_text
 
-    def fake_read_text(path: Path, *args, **kwargs):
-        if path == cached_path:
-            raise FileNotFoundError(path)
-        return original_read_text(path, *args, **kwargs)
+    def fake_read_text(file_path: Path, *args, **kwargs):
+        if file_path == cached_path:
+            raise FileNotFoundError(file_path)
+        return original_read_text(file_path, *args, **kwargs)
 
     monkeypatch.setattr(Path, "read_text", fake_read_text)
 
