@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.agent import (
+    _KB_CHUNK_TRUNCATE,
     KB_SEARCH_TOOL,
     format_kb_context,
     mcp_tools_to_openai,
@@ -41,12 +42,12 @@ def test_format_kb_context_includes_citation_and_section():
 
 
 def test_format_kb_context_truncates_long_chunks():
-    text = "x" * 1300
+    text = "x" * (_KB_CHUNK_TRUNCATE + 100)
     out = format_kb_context([_chunk(text=text)])
     assert text not in out
-    assert ("x" * 1200) in out
-    assert out.endswith(f"{'x' * 1200}...")
-    assert ("x" * 1201) not in out
+    assert ("x" * _KB_CHUNK_TRUNCATE) in out
+    assert out.endswith(f"{'x' * _KB_CHUNK_TRUNCATE}...")
+    assert ("x" * (_KB_CHUNK_TRUNCATE + 1)) not in out
 
 
 def test_format_kb_context_empty():
