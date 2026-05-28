@@ -45,7 +45,6 @@ def test_format_kb_context_truncates_long_chunks():
     out = format_kb_context([_chunk(text=text)])
     assert text not in out
     assert ("x" * 1200) in out
-    assert f"{'x' * 1200}..." in out
     assert out.endswith(f"{'x' * 1200}...")
     assert ("x" * 1201) not in out
 
