@@ -42,11 +42,12 @@ def test_format_kb_context_includes_citation_and_section():
 
 
 def test_format_kb_context_truncates_long_chunks():
-    text = "x" * (_KB_CHUNK_TRUNCATE + 100)
+    truncated_text = "x" * _KB_CHUNK_TRUNCATE
+    text = f"{truncated_text}{'x' * 100}"
     out = format_kb_context([_chunk(text=text)])
     assert text not in out
-    assert ("x" * _KB_CHUNK_TRUNCATE) in out
-    assert out.endswith(f"{'x' * _KB_CHUNK_TRUNCATE}...")
+    assert truncated_text in out
+    assert out.endswith(f"{truncated_text}...")
     assert ("x" * (_KB_CHUNK_TRUNCATE + 1)) not in out
 
 

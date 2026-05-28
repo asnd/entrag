@@ -702,15 +702,11 @@ async def test_cache_read_race_redownloads_article(
     cached_path.write_text("<html><body>Cached</body></html>")
     scraper.state.downloaded.add("66666")
     scraper.state.checksums["66666"] = "cached-checksum"
-
-    original_read_text = Path.read_text
-
-    def fake_read_text(file_path: Path, *args, **kwargs):
-        if file_path == cached_path:
-            raise FileNotFoundError(file_path)
-        return original_read_text(file_path, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "read_text", fake_read_text)
+    monkeypatch.setattr(
+        scraper,
+        "_read_cached_article",
+        MagicMock(side_effect=FileNotFoundError(cached_path)),
+    )
 
     article_resp = AsyncMock()
     article_resp.status_code = 200

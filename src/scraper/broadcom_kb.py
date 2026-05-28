@@ -264,6 +264,11 @@ class BroadcomKBScraper:
         """Calculate SHA256 checksum of content."""
         return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
+    @staticmethod
+    def _read_cached_article(output_path: Path) -> str:
+        """Read a cached article from disk for checksum validation."""
+        return output_path.read_text(encoding="utf-8")
+
     def _has_matching_cached_article(self, article_number: str, output_path: Path) -> bool:
         """Return True when a cached article exists and still matches stored state."""
         if article_number not in self.state.downloaded or not output_path.exists():
@@ -272,7 +277,7 @@ class BroadcomKBScraper:
             logger.debug("Skipping already downloaded: %s", article_number)
             return True
         try:
-            current_checksum = self._calculate_checksum(output_path.read_text(encoding="utf-8"))
+            current_checksum = self._calculate_checksum(self._read_cached_article(output_path))
         except OSError as exc:
             logger.info(
                 "Cached article %s is unavailable, re-downloading: %s",
