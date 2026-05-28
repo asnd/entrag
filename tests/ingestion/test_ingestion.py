@@ -141,11 +141,16 @@ def test_ingest_directory_success(
         mock_settings.return_value.litellm_embedding_model = "test-model"
         mock_settings.return_value.litellm_base_url = "http://localhost:4000"
         mock_settings.return_value.litellm_api_key = "sk-test"
+        mock_settings.return_value.resolved_embedding_model = MagicMock(return_value="test-model")
+        mock_settings.return_value.resolved_litellm_base_url = MagicMock(
+            return_value="http://localhost:4000"
+        )
 
         count = ingest_directory(tmp_path)
 
         assert count > 0
         mock_index_cls.from_documents.assert_called_once()
+        mock_settings.return_value.validate_litellm_api_key.assert_called_once()
 
 
 @patch("src.ingestion.VectorStoreIndex")
@@ -193,6 +198,10 @@ def test_ingest_directory_reset(
         mock_settings.return_value.litellm_embedding_model = "test-model"
         mock_settings.return_value.litellm_base_url = "http://localhost:4000"
         mock_settings.return_value.litellm_api_key = "sk-test"
+        mock_settings.return_value.resolved_embedding_model = MagicMock(return_value="test-model")
+        mock_settings.return_value.resolved_litellm_base_url = MagicMock(
+            return_value="http://localhost:4000"
+        )
 
         ingest_directory(tmp_path, reset=True)
 
@@ -224,6 +233,10 @@ def test_ingest_directory_creates_lancedb_parent(
         mock_settings.return_value.litellm_embedding_model = "test-model"
         mock_settings.return_value.litellm_base_url = "http://localhost:4000"
         mock_settings.return_value.litellm_api_key = "sk-test"
+        mock_settings.return_value.resolved_embedding_model = MagicMock(return_value="test-model")
+        mock_settings.return_value.resolved_litellm_base_url = MagicMock(
+            return_value="http://localhost:4000"
+        )
 
         ingest_directory(tmp_path)
 

@@ -138,13 +138,6 @@ def main() -> None:
         async def run_http() -> None:
             loop = asyncio.get_event_loop()
             app = create_http_app(server=server, settings=s)
-
-            async def shutdown() -> None:
-                logger.info("Shutting down EntRAG MCP server...")
-
-            for sig in (signal.SIGTERM, signal.SIGINT):
-                loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown()))
-
             config = uvicorn.Config(
                 app,
                 host="0.0.0.0",
@@ -152,6 +145,18 @@ def main() -> None:
                 log_level=s.mcp_log_level.lower(),
             )
             uvicorn_server = uvicorn.Server(config)
+
+            def request_shutdown(received_signal: signal.Signals) -> None:
+                logger.info("Shutting down EntRAG MCP server after %s...", received_signal.name)
+                uvicorn_server.should_exit = True
+
+            for sig in (signal.SIGTERM, signal.SIGINT):
+                loop.add_signal_handler(
+                    sig,
+                    request_shutdown,
+                    sig,
+                )
+
             logger.info("Starting EntRAG MCP HTTP server on 0.0.0.0:%d", s.mcp_port)
             await uvicorn_server.serve()
 

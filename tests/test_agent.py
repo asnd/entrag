@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.agent import (
+    _KB_CHUNK_TRUNCATE,
     KB_SEARCH_TOOL,
     format_kb_context,
     mcp_tools_to_openai,
@@ -38,6 +39,16 @@ def test_format_kb_context_includes_citation_and_section():
     assert "KB318867" in out
     assert "Resolution" in out
     assert "Reboot the host." in out
+
+
+def test_format_kb_context_truncates_long_chunks():
+    truncated_text = "x" * _KB_CHUNK_TRUNCATE
+    text = f"{truncated_text}{'x' * 100}"
+    out = format_kb_context([_chunk(text=text)])
+    assert text not in out
+    assert truncated_text in out
+    assert out.endswith(f"{truncated_text}...")
+    assert ("x" * (_KB_CHUNK_TRUNCATE + 1)) not in out
 
 
 def test_format_kb_context_empty():

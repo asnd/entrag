@@ -678,6 +678,58 @@ async def test_authenticate_with_playwright_import_error(temp_dir: Path):
         assert result is False
 
 
+@pytest.mark.asyncio
+async def test_authenticate_with_playwright_requires_client(temp_dir: Path):
+    """Playwright auth should fail clearly if the HTTP client is not initialized."""
+    scraper = BroadcomKBScraper(
+        output_dir=temp_dir,
+        username="test@example.com",
+        use_auth=True,
+    )
+
+    with pytest.raises(RuntimeError, match="HTTP client not initialized"):
+        await scraper.authenticate_with_playwright()
+
+
+@pytest.mark.asyncio
+async def test_cache_read_race_redownloads_article(
+    temp_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """If a cached file disappears while being checked, it should be re-downloaded."""
+    scraper = BroadcomKBScraper(output_dir=temp_dir, use_auth=False)
+    cached_path = temp_dir / "66666.html"
+    cached_path.write_text("<html><body>Cached</body></html>")
+    scraper.state.downloaded.add("66666")
+    scraper.state.checksums["66666"] = "cached-checksum"
+    monkeypatch.setattr(
+        scraper,
+        "_read_cached_article",
+        MagicMock(side_effect=FileNotFoundError(cached_path)),
+    )
+
+    article_resp = AsyncMock()
+    article_resp.status_code = 200
+    article_resp.text = "<html><body>Fresh</body></html>"
+    article_resp.url = "https://kb.example.com/article/66666"
+    article_resp.raise_for_status = MagicMock()
+
+    mock_client = _make_mock_client()
+    mock_client.get = AsyncMock(return_value=article_resp)
+    scraper._client = mock_client
+
+    meta = KBArticleMeta(
+        article_number="66666",
+        title="Fresh",
+        url="https://kb.example.com/article/66666",
+    )
+
+    path = await scraper.download_article(meta)
+
+    assert path == cached_path
+    mock_client.get.assert_called_once()
+
+
 def test_scraper_init_with_zero_delay(tmp_path: Path):
     """Test that delay_seconds=0.0 is respected (not treated as falsy)."""
     scraper = BroadcomKBScraper(

@@ -137,7 +137,7 @@ python -m scripts.ingest --source ./data/raw --reset
 python -m scripts.ingest --local
 ```
 
-`--local` switches the ingestion command to the local LiteLLM endpoint/model aliases instead of mutating process environment variables.
+`--local` switches the ingestion command to the local LiteLLM endpoint/model aliases instead of mutating process environment variables. Ingestion validates `LITELLM_API_KEY` before building embeddings and uses the resolved embedding model/base URL, so `EMBEDDING_PROVIDER=local` consistently selects the local LiteLLM aliases.
 
 ## Configuration reference
 
@@ -160,6 +160,7 @@ python -m scripts.ingest --local
 - LiteLLM master keys are now sourced from environment instead of hardcoded in YAML
 - Authenticated scraping is opt-in and should only be used when you understand the legal and operational implications
 - Placeholder API keys are rejected before ingestion and retrieval start network calls
+- HTML files larger than 10 MiB are skipped during parsing to prevent accidental memory exhaustion from corrupted or unexpected scraper output
 
 ## Retrieval quality notes
 

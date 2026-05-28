@@ -83,10 +83,13 @@ def ingest_directory(
     logger.info("Total documents (chunks): %d", len(all_docs))
 
     # Always use LiteLLM (supports both remote and local models)
-    logger.info("Using embedding via LiteLLM: %s", settings.litellm_embedding_model)
+    settings.validate_litellm_api_key()
+    embedding_model = settings.resolved_embedding_model()
+    litellm_base_url = settings.resolved_litellm_base_url()
+    logger.info("Using embedding via LiteLLM: %s", embedding_model)
     embed_model = LiteLLMEmbedding(
-        model_name=settings.litellm_embedding_model,
-        api_base=settings.litellm_base_url,
+        model_name=embedding_model,
+        api_base=litellm_base_url,
         api_key=settings.litellm_api_key,
     )
 
