@@ -15,6 +15,8 @@ from bs4 import BeautifulSoup, Tag
 
 logger = logging.getLogger(__name__)
 
+MAX_HTML_FILE_BYTES = 10 * 1024 * 1024
+
 
 @dataclass
 class KBSection:
@@ -104,6 +106,12 @@ class KBArticleParser:
         Returns:
             ParsedKBArticle with structured content.
         """
+        file_size = html_path.stat().st_size
+        if file_size > MAX_HTML_FILE_BYTES:
+            raise ValueError(
+                f"HTML file is too large to parse safely: {html_path} "
+                f"({file_size} bytes > {MAX_HTML_FILE_BYTES} bytes)"
+            )
         html_content = html_path.read_text(encoding="utf-8")
         article_number = html_path.stem  # filename without extension
 

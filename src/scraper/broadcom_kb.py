@@ -200,6 +200,9 @@ class BroadcomKBScraper:
         Some Broadcom portal pages require JavaScript execution for
         proper authentication (OAuth redirects, CAPTCHA, etc.).
         """
+        if self._client is None:
+            raise RuntimeError("HTTP client not initialized. Use the scraper as a context manager.")
+
         try:
             from playwright.async_api import async_playwright
         except ImportError:
@@ -260,6 +263,24 @@ class BroadcomKBScraper:
     def _calculate_checksum(content: str) -> str:
         """Calculate SHA256 checksum of content."""
         return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    def _has_matching_cached_article(self, article_number: str, output_path: Path) -> bool:
+        """Return True when a cached article exists and still matches stored state."""
+        if article_number not in self.state.downloaded or not output_path.exists():
+            return False
+        if article_number not in self.state.checksums:
+            logger.debug("Skipping already downloaded: %s", article_number)
+            return True
+        try:
+            current_checksum = self._calculate_checksum(output_path.read_text(encoding="utf-8"))
+        except OSError as exc:
+            logger.info("Cached article %s is unavailable, re-downloading: %s", article_number, exc)
+            return False
+        if current_checksum == self.state.checksums[article_number]:
+            logger.debug("Skipping unchanged article: %s", article_number)
+            return True
+        logger.info("Article changed, re-downloading: %s", article_number)
+        return False
 
     async def search_articles(
         self,
@@ -392,17 +413,8 @@ class BroadcomKBScraper:
         output_path = self.output_dir / f"{meta.article_number}.html"
 
         # Incremental scraping: skip if already downloaded and checksum matches
-        if meta.article_number in self.state.downloaded and output_path.exists():
-            if meta.article_number in self.state.checksums:
-                current_checksum = self._calculate_checksum(output_path.read_text(encoding="utf-8"))
-                if current_checksum == self.state.checksums[meta.article_number]:
-                    logger.debug("Skipping unchanged article: %s", meta.article_number)
-                    return output_path
-                else:
-                    logger.info("Article changed, re-downloading: %s", meta.article_number)
-            else:
-                logger.debug("Skipping already downloaded: %s", meta.article_number)
-                return output_path
+        if self._has_matching_cached_article(meta.article_number, output_path):
+            return output_path
 
         if self._client is None:
             raise RuntimeError("HTTP client not initialized. Use the scraper as a context manager.")

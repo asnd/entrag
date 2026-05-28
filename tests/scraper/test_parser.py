@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from src.scraper.parser import (
     KBArticleParser,
     KBSection,
@@ -547,6 +549,17 @@ def test_parse_file_with_corrupted_metadata(tmp_path: Path, caplog):
     assert article.article_number == "12345"
     assert article.title == "Test"  # from HTML, not corrupted metadata
     assert "Failed to parse metadata" in caplog.text
+
+
+def test_parse_file_rejects_oversized_html(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Oversized files should be rejected before reading into memory."""
+    html_file = tmp_path / "12345.html"
+    html_file.write_text("<html>oversized</html>")
+    monkeypatch.setattr("src.scraper.parser.MAX_HTML_FILE_BYTES", 10)
+
+    parser = KBArticleParser()
+    with pytest.raises(ValueError, match="too large to parse safely"):
+        parser.parse_file(html_file)
 
 
 def test_parse_directory_mixed_valid_invalid(tmp_path: Path, caplog):

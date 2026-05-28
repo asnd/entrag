@@ -139,11 +139,14 @@ def main() -> None:
             loop = asyncio.get_event_loop()
             app = create_http_app(server=server, settings=s)
 
-            async def shutdown() -> None:
-                logger.info("Shutting down EntRAG MCP server...")
+            async def shutdown(received_signal: signal.Signals) -> None:
+                logger.info("Shutting down EntRAG MCP server after %s...", received_signal.name)
 
             for sig in (signal.SIGTERM, signal.SIGINT):
-                loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown()))
+                loop.add_signal_handler(
+                    sig,
+                    lambda received_signal=sig: asyncio.create_task(shutdown(received_signal)),
+                )
 
             config = uvicorn.Config(
                 app,

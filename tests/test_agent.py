@@ -40,6 +40,14 @@ def test_format_kb_context_includes_citation_and_section():
     assert "Reboot the host." in out
 
 
+def test_format_kb_context_truncates_long_chunks():
+    text = "x" * 1300
+    out = format_kb_context([_chunk(text=text)])
+    assert text not in out
+    assert ("x" * 1200) in out
+    assert ("x" * 1201) not in out
+
+
 def test_format_kb_context_empty():
     assert format_kb_context([]) == ""
 
