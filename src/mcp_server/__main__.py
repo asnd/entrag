@@ -139,13 +139,13 @@ def main() -> None:
             loop = asyncio.get_event_loop()
             app = create_http_app(server=server, settings=s)
 
-            def shutdown(received_signal: signal.Signals) -> None:
+            def log_signal(received_signal: signal.Signals) -> None:
                 logger.info("Shutting down EntRAG MCP server after %s...", received_signal.name)
 
             for sig in (signal.SIGTERM, signal.SIGINT):
                 loop.add_signal_handler(
                     sig,
-                    shutdown,
+                    log_signal,
                     sig,
                 )
 
