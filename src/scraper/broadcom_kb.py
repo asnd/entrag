@@ -274,7 +274,11 @@ class BroadcomKBScraper:
         try:
             current_checksum = self._calculate_checksum(output_path.read_text(encoding="utf-8"))
         except OSError as exc:
-            logger.info("Cached article %s is unavailable, re-downloading: %s", article_number, exc)
+            logger.info(
+                "Cached article %s is unavailable, re-downloading: %s",
+                article_number,
+                str(exc),
+            )
             return False
         if current_checksum == self.state.checksums[article_number]:
             logger.debug("Skipping unchanged article: %s", article_number)

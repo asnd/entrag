@@ -103,9 +103,16 @@ def format_kb_context(chunks: list[RetrievedChunk]) -> str:
         parts.append(
             f"[{i}] KB{chunk.article_number}: {chunk.title}\n"
             f"Section: {section}{heading}\n\n"
-            f"{chunk.text[:_KB_CHUNK_TRUNCATE]}"
+            f"{_truncate_kb_text(chunk.text)}"
         )
     return "\n\n---\n\n".join(parts)
+
+
+def _truncate_kb_text(text: str) -> str:
+    """Limit KB context size while making truncation visible to the model."""
+    if len(text) <= _KB_CHUNK_TRUNCATE:
+        return text
+    return f"{text[:_KB_CHUNK_TRUNCATE]}..."
 
 
 def mcp_tools_to_openai(
