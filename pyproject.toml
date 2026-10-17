@@ -21,7 +21,7 @@ dependencies = [
     # Config
     "pydantic-settings",
     # MCP server
-    "mcp>=1.0.0",
+    "mcp>=1.0.0,<2",
     "uvicorn>=0.30.0",
     "starlette",
     "PyJWT[crypto]>=2.8.0",
